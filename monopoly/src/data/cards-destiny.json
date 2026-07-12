@@ -1,0 +1,18 @@
+[
+  { "id": "D01", "type": "destiny", "text": "烟台山大雾关闭，观光收入损失", "effect": { "action": "cash", "amount": -800 }, "icon": "🌫️" },
+  { "id": "D02", "type": "destiny", "text": "蓬莱阁海市蜃楼迷路，支付救援费", "effect": { "action": "cash", "amount": -1000 }, "icon": "🏜️" },
+  { "id": "D03", "type": "destiny", "text": "所城里老房修缮，分摊费用", "effect": { "action": "cash", "amount": -600 }, "icon": "🏚️" },
+  { "id": "D04", "type": "destiny", "text": "台风过境，金沙滩设施受损", "effect": { "action": "cash", "amount": -1200 }, "icon": "🌪️" },
+  { "id": "D05", "type": "destiny", "text": "长岛轮渡停航，滞留费用", "effect": { "action": "cash", "amount": -700 }, "icon": "⛴️" },
+  { "id": "D06", "type": "destiny", "text": "养马岛赛马节投注失败", "effect": { "action": "cash", "amount": -1500 }, "icon": "🐎" },
+  { "id": "D07", "type": "destiny", "text": "朝阳街商铺被盗（已破案，获部分赔偿）", "effect": { "action": "cash", "amount": -400 }, "icon": "🔍" },
+  { "id": "D08", "type": "destiny", "text": "昆嵛山火灾预警，捐赠消防设备", "effect": { "action": "cash", "amount": -900 }, "icon": "🔥" },
+  { "id": "D09", "type": "destiny", "text": "张裕酒窖漏水，名酒受损", "effect": { "action": "cash", "amount": -1100 }, "icon": "🍾" },
+  { "id": "D10", "type": "destiny", "text": "机场航班延误，赔偿旅客", "effect": { "action": "cash", "amount": -500 }, "icon": "✈️" },
+  { "id": "D11", "type": "destiny", "text": "发现所城里古井，获文物保护奖金", "effect": { "action": "cash", "amount": 1200 }, "icon": "🏺" },
+  { "id": "D12", "type": "destiny", "text": "养马岛发现新景点，吸引投资", "effect": { "action": "cash", "amount": 1500 }, "icon": "🏝️" },
+  { "id": "D13", "type": "destiny", "text": "东炮台修复工程，获政府补贴", "effect": { "action": "cash", "amount": 800 }, "icon": "🏛️" },
+  { "id": "D14", "type": "destiny", "text": "黄海明珠观光塔冠名权拍卖，分红", "effect": { "action": "cash", "amount": 1000 }, "icon": "🗼" },
+  { "id": "D15", "type": "destiny", "text": "芝罘湾游艇码头扩建，征收补偿", "effect": { "action": "cash", "amount": 1800 }, "icon": "🛥️" },
+  { "id": "D16", "type": "destiny", "text": "龙湖地产项目合作，投资收益", "effect": { "action": "cash", "amount": 2200 }, "icon": "📈" }
+]

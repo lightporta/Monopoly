@@ -1,0 +1,18 @@
+{
+  "collectRule": {
+    "trigger": "passStart",
+    "drawCount": 1,
+    "redeemSetSize": 4,
+    "redeemOptions": [
+      { "type": "cash", "amount": 2000 },
+      { "type": "freeRent", "uses": 1 }
+    ]
+  },
+  "items": [
+    { "id": "F01", "name": "烟台焖子", "icon": "🍲" },
+    { "id": "F02", "name": "蓬莱小面", "icon": "🍜" },
+    { "id": "F03", "name": "海鲜疙瘩汤", "icon": "🥣" },
+    { "id": "F04", "name": "鲅鱼水饺", "icon": "🥟" }
+  ],
+  "distribution": { "F01": 4, "F02": 4, "F03": 4, "F04": 4 }
+}

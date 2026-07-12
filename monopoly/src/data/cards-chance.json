@@ -1,0 +1,18 @@
+[
+  { "id": "C01", "type": "chance", "text": "在朝阳街偶遇非遗剪纸展，游客打赏", "effect": { "action": "cash", "amount": 1000 }, "icon": "🎉" },
+  { "id": "C02", "type": "chance", "text": "张裕酒文化博物馆品鉴会分红", "effect": { "action": "cash", "amount": 800 }, "icon": "🍷" },
+  { "id": "C03", "type": "chance", "text": "养马岛海水浴场旺季营收", "effect": { "action": "cash", "amount": 1200 }, "icon": "🏖️" },
+  { "id": "C04", "type": "chance", "text": "长岛捡到稀有球石，收藏家收购", "effect": { "action": "cash", "amount": 1500 }, "icon": "💎" },
+  { "id": "C05", "type": "chance", "text": "蓬莱阁古建筑修复，获政府奖励", "effect": { "action": "cash", "amount": 2000 }, "icon": "🏛️" },
+  { "id": "C06", "type": "chance", "text": "所城里汉服文化节，摊位收入", "effect": { "action": "cash", "amount": 600 }, "icon": "👘" },
+  { "id": "C07", "type": "chance", "text": "烟台山灯塔开放夜景观光，门票大卖", "effect": { "action": "cash", "amount": 1300 }, "icon": "🌃" },
+  { "id": "C08", "type": "chance", "text": "金沙滩沙雕比赛获奖金", "effect": { "action": "cash", "amount": 700 }, "icon": "🏖️" },
+  { "id": "C09", "type": "chance", "text": "渔人码头海鲜美食节，生意火爆", "effect": { "action": "cash", "amount": 1100 }, "icon": "🦐" },
+  { "id": "C10", "type": "chance", "text": "昆嵛山发现野生灵芝，卖出高价", "effect": { "action": "cash", "amount": 1800 }, "icon": "🍄" },
+  { "id": "C11", "type": "chance", "text": "磁山温泉获评最佳康养地，奖金", "effect": { "action": "cash", "amount": 900 }, "icon": "♨️" },
+  { "id": "C12", "type": "chance", "text": "朝阳街商铺租金上涨，额外收入", "effect": { "action": "cash", "amount": 500 }, "icon": "💰" },
+  { "id": "C13", "type": "chance", "text": "帮助迷路游客找到酒店，获感谢费", "effect": { "action": "cash", "amount": 300 }, "icon": "🤝" },
+  { "id": "C14", "type": "chance", "text": "烟台晚报报道你的旅行故事，获稿费", "effect": { "action": "cash", "amount": 400 }, "icon": "📰" },
+  { "id": "C15", "type": "chance", "text": "八仙过海节担任嘉宾，获出场费", "effect": { "action": "cash", "amount": 1600 }, "icon": "🎭" },
+  { "id": "C16", "type": "chance", "text": "抽中仙境幸运星，银行额外奖励", "effect": { "action": "cash", "amount": 2500 }, "icon": "⭐" }
+]

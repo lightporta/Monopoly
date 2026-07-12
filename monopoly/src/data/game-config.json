@@ -1,0 +1,36 @@
+{
+  "version": "1.0.0",
+  "theme": "仙境海岸·烟台",
+  "player": {
+    "minCount": 2,
+    "maxCount": 4,
+    "initialCash": 15000
+  },
+  "dice": {
+    "count": 2,
+    "doublesLimit": 3,
+    "doublesPenaltyCell": 18
+  },
+  "start": {
+    "cellIndex": 0,
+    "passReward": 2000
+  },
+  "economy": {
+    "buildCostRatio": 0.4,
+    "mortgageRatio": 0.5,
+    "redeemMultiplier": 1.1,
+    "sellBuildingRatio": 0.5,
+    "auctionStartRatio": 0.5,
+    "auctionMinStep": 100
+  },
+  "rentMultipliers": {
+    "empty": 1.0,
+    "house1": 1.5,
+    "house2": 2.0,
+    "house3": 2.5,
+    "hotel": 3.5
+  },
+  "victory": {
+    "ironTriangle": ["烟台山", "蓬莱阁", "养马岛"]
+  }
+}
