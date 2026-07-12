@@ -197,4 +197,68 @@ const rentRows = computed(() => {
 
 .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+
+@media (max-width: 767px) {
+  .modal {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 40px);
+    border-radius: 16px;
+  }
+
+  .accent { height: 6px; }
+
+  .header {
+    padding: 14px 16px 6px;
+  }
+
+  .title { font-size: 16px; }
+
+  .group-tag {
+    font-size: 11px;
+    padding: 2px 8px;
+  }
+
+  .price-row {
+    padding: 4px 16px;
+  }
+
+  .price-label { font-size: 13px; }
+
+  .price-value { font-size: 22px; }
+
+  .rent-value { font-size: 15px; }
+
+  .rent-table {
+    width: calc(100% - 32px);
+    margin: 10px 16px;
+    font-size: 13px;
+  }
+
+  .rent-table th,
+  .rent-table td {
+    padding: 6px 8px;
+  }
+
+  .warn {
+    margin: 0 16px 6px;
+    font-size: 12px;
+  }
+
+  .actions {
+    padding: 6px 16px 16px;
+  }
+
+  .btn {
+    font-size: 14px;
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal {
+    animation: none;
+  }
+
+  .fade-enter-active, .fade-leave-active { transition: none; }
+}
 </style>

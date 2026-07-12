@@ -35,7 +35,7 @@ const isPositive = computed(() => {
 })
 
 function confirm() {
-  store.pendingModal = null
+  store.clearPendingEvent()
   store.endTurn()
 }
 </script>

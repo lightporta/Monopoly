@@ -3,22 +3,17 @@ import { computed } from 'vue'
 import { useGameStore } from '@/stores/gameStore'
 
 const emit = defineEmits<{
-  (e: 'build'): void
-  (e: 'mortgage'): void
+  (e: 'manage-assets'): void
   (e: 'redeem-food'): void
 }>()
 
 const store = useGameStore()
 
-const hasFourFoodTypes = computed(() => {
+const canRedeemFood = computed(() => {
   const p = store.currentPlayer
-  if (!p) return false
-  return new Set(p.foodCards).size >= 4
+  if (!p || p.isAI || p.bankrupt) return false
+  return !store.pendingModal
 })
-
-const canRedeemFood = computed(
-  () => store.canManageAssets && hasFourFoodTypes.value
-)
 </script>
 
 <template>
@@ -32,25 +27,25 @@ const canRedeemFood = computed(
         🎲 掷骰子
       </button>
       <button
-        class="btn-asset"
-        :disabled="!store.canManageAssets"
-        @click="emit('build')"
+        class="btn-skip"
+        :disabled="!store.canSkipTurn"
+        @click="store.skipTurn()"
       >
-        🏠 建造
+        🏳️ 放弃
       </button>
       <button
         class="btn-asset"
         :disabled="!store.canManageAssets"
-        @click="emit('mortgage')"
+        @click="emit('manage-assets')"
       >
-        💰 抵押
+        🏠 资产
       </button>
       <button
         class="btn-asset"
         :disabled="!canRedeemFood"
         @click="emit('redeem-food')"
       >
-        🍱 兑换美食
+        🍱 美食
       </button>
     </div>
   </div>
@@ -75,8 +70,8 @@ const canRedeemFood = computed(
 }
 
 button {
-  padding: 12px 8px;
-  font-size: 14px;
+  padding: 12px 6px;
+  font-size: 13px;
   font-weight: 700;
   border-radius: var(--radius-pill);
   transition: var(--transition-base);
@@ -96,6 +91,21 @@ button {
 }
 
 .btn-roll:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-skip {
+  background: linear-gradient(135deg, #78909C, #546E7A);
+  color: #fff;
+  box-shadow: 0 4px 10px rgba(96, 125, 139, 0.35);
+}
+
+.btn-skip:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 14px rgba(96, 125, 139, 0.5);
+}
+
+.btn-skip:active:not(:disabled) {
   transform: translateY(0);
 }
 

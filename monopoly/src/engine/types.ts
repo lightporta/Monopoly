@@ -117,6 +117,7 @@ export type EventType =
   | 'passStart'
   | 'landStart'
   | 'foodRedeem'
+  | 'landOpponentProperty'
   | 'auction'
   | 'bankrupt'
   | 'victory'
@@ -128,6 +129,10 @@ export interface GameEvent {
   propertyId?: string
   amount?: number
   card?: Card
+  ownerId?: number
+  ownerName?: string
+  buildCost?: number
+  buildingLevel?: number
   message: string
 }
 

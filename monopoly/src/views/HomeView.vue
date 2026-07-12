@@ -153,18 +153,21 @@ function startGame() {
             <div class="rules-section">
               <h4>🎯 游戏目标</h4>
               <ul>
-                <li>破产胜利：使其他所有玩家破产</li>
-                <li>铁三角胜利：同时持有烟台山、蓬莱阁、养马岛</li>
+                <li>破产胜利：使其他所有玩家破产，成为最后存活者</li>
+                <li>铁三角胜利：同时持有烟台山、蓬莱阁、养马岛三处地标</li>
               </ul>
             </div>
             <div class="rules-section">
               <h4>🎲 基本规则</h4>
               <ul>
-                <li>掷骰移动，经过起点领¥2000并抽美食卡</li>
-                <li>购买地产，建造房屋收取过路费</li>
-                <li>集齐同色块地产，过路费翻倍</li>
+                <li>掷骰移动，经过起点领¥2000并抽一张美食卡</li>
+                <li>落到空地可购买，落到他人地产可选择买地皮/买房屋/租赁或跳过</li>
+                <li>建造房屋收取过路费（最多3级房屋+1级旅馆）</li>
+                <li>集齐同色块地产，空地过路费翻倍（建筑等级不叠加色块加成）</li>
                 <li>机会卡获收益，命运卡遇风险</li>
                 <li>连续三次掷出双数，送至休息格跳过下一回合</li>
+                <li>掷出双数可再掷一次（额外回合）</li>
+                <li>可点击"放弃"按钮跳过本轮</li>
               </ul>
             </div>
             <div class="rules-section">
@@ -183,6 +186,17 @@ function startGame() {
                 <li>四种美食：烟台焖子、蓬莱小面、海鲜疙瘩汤、鲅鱼水饺</li>
                 <li>每次经过起点抽一张美食卡</li>
                 <li>集齐四种可兑换：¥2000 或 1张免租券</li>
+                <li>免租券：经过他人地产时自动消耗，免除一次租金</li>
+              </ul>
+            </div>
+            <div class="rules-section">
+              <h4>🤝 对方资产交易</h4>
+              <ul>
+                <li>落到他人地产时可选择：买地皮（含建筑）/ 买房屋 / 租赁</li>
+                <li>买地皮：获得整块地产及建筑所有权</li>
+                <li>买房屋：购买对方一套房屋，地产归属不变</li>
+                <li>租赁：支付租金，地产仍归对方所有</li>
+                <li>交易需对方同意（AI自动决策，70%同意率）</li>
               </ul>
             </div>
             <div class="rules-section">
@@ -192,6 +206,7 @@ function startGame() {
                 <li>🔵 海岸线（8块）：集齐4块 ×1.5</li>
                 <li>🟢 仙山（5块）：全部集齐 ×2.0</li>
                 <li>🟠 温泉（4块）：全部集齐 ×2.0</li>
+                <li>注：色块加成仅对空地生效，建筑租金已含等级倍率</li>
               </ul>
             </div>
             <div class="rules-section">
@@ -199,8 +214,11 @@ function startGame() {
               <ul>
                 <li>初始资金：¥15000</li>
                 <li>建造费用 = 地价 × 0.4</li>
+                <li>卖房回收 = 建造费 × 0.5（半价）</li>
                 <li>抵押可得 = 地价 × 0.5</li>
                 <li>赎回费用 = 抵押金 × 1.1</li>
+                <li>租金等级：空地→1级→2级→3级→旅馆，逐级递增</li>
+                <li>现金不足时自动清算（先卖房后抵押），仍不足则破产</li>
               </ul>
             </div>
           </div>
@@ -271,20 +289,85 @@ function startGame() {
 @media (max-width: 480px) { .mode-cards { flex-direction: column; } .mode-card { min-width: 100%; } }
 
 .rules-modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,.75); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
-.rules-modal { width: 100%; max-width: 560px; max-height: 85vh; background: linear-gradient(160deg, #1A237E, #283593); border-radius: 24px; border: 2px solid rgba(251,192,45,.3); box-shadow: 0 20px 60px rgba(0,0,0,.5); display: flex; flex-direction: column; overflow: hidden; }
-.modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; border-bottom: 1px solid rgba(255,255,255,.15); }
-.modal-header h3 { font-size: 20px; font-weight: 700; color: var(--color-gold); margin: 0; }
-.close-btn { width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,.1); border: none; color: rgba(255,255,255,.6); font-size: 24px; cursor: pointer; transition: var(--transition-base); display: flex; align-items: center; justify-content: center; }
-.close-btn:hover { background: rgba(255,255,255,.2); color: #fff; }
+.rules-modal { width: 100%; max-width: 560px; max-height: 85vh; background: #fff; border-radius: 24px; border: 2px solid rgba(251,192,45,.3); box-shadow: 0 20px 60px rgba(0,0,0,.5); display: flex; flex-direction: column; overflow: hidden; }
+.modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; border-bottom: 1px solid rgba(0,0,0,.1); }
+.modal-header h3 { font-size: 20px; font-weight: 700; color: #333; margin: 0; }
+.close-btn { width: 32px; height: 32px; border-radius: 50%; background: rgba(0,0,0,.1); border: none; color: #666; font-size: 24px; cursor: pointer; transition: var(--transition-base); display: flex; align-items: center; justify-content: center; }
+.close-btn:hover { background: rgba(0,0,0,.2); color: #333; }
 .modal-content { flex: 1; overflow-y: auto; padding: 20px 24px; }
 .rules-section { margin-bottom: 20px; }
 .rules-section:last-child { margin-bottom: 0; }
-.rules-section h4 { font-size: 15px; font-weight: 700; color: rgba(255,255,255,.9); margin: 0 0 10px 0; }
+.rules-section h4 { font-size: 15px; font-weight: 700; color: #333; margin: 0 0 10px 0; }
 .rules-section ul { margin: 0; padding-left: 20px; }
-.rules-section li { color: rgba(255,255,255,.75); font-size: 14px; line-height: 1.8; margin-bottom: 6px; }
+.rules-section li { color: #555; font-size: 14px; line-height: 1.8; margin-bottom: 6px; }
 .rules-section li:last-child { margin-bottom: 0; }
-.modal-footer { padding: 16px 24px; border-top: 1px solid rgba(255,255,255,.15); display: flex; justify-content: center; }
+.modal-footer { padding: 16px 24px; border-top: 1px solid rgba(0,0,0,.1); display: flex; justify-content: center; }
 .modal-enter-active, .modal-leave-active { transition: all .3s ease; }
 .modal-enter-from, .modal-leave-to { opacity: 0; }
 .modal-enter-from .rules-modal, .modal-leave-to .rules-modal { transform: scale(0.9); }
+
+.home { min-height: 100dvh; }
+
+@media (max-width: 767px) {
+  .home { padding-bottom: env(safe-area-inset-bottom); }
+  .step { width: 100%; max-width: 360px; padding: 16px; gap: 20px; }
+  .title { font-size: 22px; }
+  .subtitle { font-size: 14px; }
+  .config-title { font-size: 18px; }
+  .mode-cards { flex-direction: column; gap: 12px; }
+  .mode-card { width: 100%; min-width: 100%; padding: 20px 16px; }
+  .mode-icon { font-size: 36px; margin-bottom: 8px; }
+  .mode-card h2 { font-size: 16px; }
+  .mode-card p { font-size: 12px; }
+  .rules-btn { max-width: 360px; padding: 0 24px; height: 48px; font-size: 15px; }
+  .selector-row { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .selector-btns { width: 100%; }
+  .count-btn { flex: 1; height: 40px; font-size: 14px; }
+  .player-row { padding: 10px 12px; gap: 10px; }
+  .token-badge { width: 34px; height: 34px; font-size: 18px; }
+  .name-input { height: 48px; font-size: 16px; padding: 0 12px; }
+  .level-select { height: 40px; font-size: 14px; }
+  .action-row { flex-direction: column; gap: 12px; width: 100%; }
+  .action-row .btn { width: 100%; height: 48px; font-size: 15px; }
+  .btn-back { height: 44px; font-size: 14px; }
+  .rules-modal-overlay { align-items: flex-end; padding: 0; }
+  .rules-modal { max-height: 85dvh; border-radius: 20px 20px 0 0; }
+  .modal-header { padding: 16px 20px; }
+  .modal-header h3 { font-size: 18px; }
+  .modal-content { padding: 16px 20px; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .modal-footer { padding: 12px 20px; padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+  .modal-footer .btn { height: 48px; font-size: 15px; }
+}
+
+@media (max-width: 480px) {
+  .step { padding: 12px; gap: 16px; }
+  .title { font-size: 20px; letter-spacing: 1px; }
+  .subtitle { font-size: 13px; }
+  .config-title { font-size: 16px; }
+  .mode-card { padding: 16px 12px; }
+  .mode-icon { font-size: 32px; }
+  .mode-card h2 { font-size: 15px; }
+  .player-row { padding: 8px 10px; }
+  .token-badge { width: 30px; height: 30px; font-size: 16px; }
+  .name-input { height: 44px; font-size: 15px; }
+  .rules-btn { height: 46px; font-size: 14px; }
+  .modal-header { padding: 14px 16px; }
+  .modal-content { padding: 14px 16px; }
+  .modal-footer { padding: 10px 16px; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+  .rules-section h4 { font-size: 14px; }
+  .rules-section li { font-size: 13px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w1, .w2, .w3 { animation: none; }
+  .slide-enter-active, .slide-leave-active { transition: none; }
+  .modal-enter-active, .modal-leave-active { transition: none; }
+  .mode-card { transition: none; }
+  .mode-card:hover { transform: none; }
+  .rules-btn { transition: none; }
+  .rules-btn:hover { transform: none; }
+  .count-btn { transition: none; }
+  .btn-back { transition: none; }
+  .status-dot.waiting { animation: none; }
+}
 </style>

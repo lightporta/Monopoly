@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { onlineSDK } from '@/online/onlineSdk.js'
 import { useOnlineStore } from '@/stores/onlineStore'
@@ -7,7 +7,6 @@ import { useOnlineStore } from '@/stores/onlineStore'
 const router = useRouter()
 const onlineStore = useOnlineStore()
 
-const tab = ref<'create' | 'join'>('create')
 const roomKey = ref('')
 const playerName = ref(onlineSDK.getPlayerName())
 const errorMsg = ref('')
@@ -36,7 +35,7 @@ onUnmounted(() => {
   unsub.forEach(fn => fn())
 })
 
-async function handleSubmit() {
+async function handleCreate() {
   errorMsg.value = ''
   if (!playerName.value.trim()) {
     errorMsg.value = '请输入昵称'
@@ -61,11 +60,35 @@ async function handleSubmit() {
   try {
     const wsUrl = import.meta.env.VITE_WS_URL || `ws://${window.location.host}/ws`
     await onlineSDK.connect(wsUrl)
-    if (tab.value === 'create') {
-      onlineSDK.createRoom(roomKey.value.trim().toUpperCase(), playerName.value.trim())
-    } else {
-      onlineSDK.joinRoom(roomKey.value.trim(), playerName.value.trim())
-    }
+    onlineSDK.createRoom(roomKey.value.trim().toUpperCase(), playerName.value.trim())
+  } catch (e) {
+    errorMsg.value = '连接服务器失败，请稍后重试'
+    isConnecting.value = false
+  }
+}
+
+async function handleJoin() {
+  errorMsg.value = ''
+  if (!playerName.value.trim()) {
+    errorMsg.value = '请输入昵称'
+    return
+  }
+  if (playerName.value.length < 1 || playerName.value.length > 8) {
+    errorMsg.value = '昵称1~8字符'
+    return
+  }
+  if (!roomKey.value.trim()) {
+    errorMsg.value = '请输入房间号'
+    return
+  }
+
+  isConnecting.value = true
+  onlineSDK.setPlayerName(playerName.value.trim())
+
+  try {
+    const wsUrl = import.meta.env.VITE_WS_URL || `ws://${window.location.host}/ws`
+    await onlineSDK.connect(wsUrl)
+    onlineSDK.joinRoom(roomKey.value.trim(), playerName.value.trim())
   } catch (e) {
     errorMsg.value = '连接服务器失败，请稍后重试'
     isConnecting.value = false
@@ -90,22 +113,22 @@ function goBack() {
         <input v-model="playerName" class="name-input" placeholder="请输入昵称（1~8字符）" maxlength="8" />
       </div>
 
-      <div class="tabs">
-        <button :class="['tab-btn', { active: tab === 'create' }]" @click="tab = 'create'; errorMsg = ''">创建房间</button>
-        <button :class="['tab-btn', { active: tab === 'join' }]" @click="tab = 'join'; errorMsg = ''">加入房间</button>
-      </div>
-
       <div class="input-group">
         <label>房间 Key</label>
-        <input v-model="roomKey" class="key-input" :placeholder="tab === 'create' ? '自定义房间号（4~10位）' : '输入房间号'" maxlength="10" />
+        <input v-model="roomKey" class="key-input" placeholder="输入房间号（4~10位）" maxlength="10" />
         <p class="hint">区分大小写，仅支持字母和数字</p>
       </div>
 
       <p v-if="errorMsg" class="error-msg">{{ errorMsg }}</p>
 
-      <button class="submit-btn" @click="handleSubmit" :disabled="isConnecting">
-        {{ isConnecting ? '连接中...' : (tab === 'create' ? '创建房间' : '加入房间') }}
-      </button>
+      <div class="action-buttons">
+        <button class="submit-btn create-btn" @click="handleCreate" :disabled="isConnecting">
+          {{ isConnecting ? '连接中...' : '创建房间' }}
+        </button>
+        <button class="submit-btn join-btn" @click="handleJoin" :disabled="isConnecting">
+          {{ isConnecting ? '连接中...' : '加入房间' }}
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -131,13 +154,45 @@ function goBack() {
 .name-input::placeholder, .key-input::placeholder { color: rgba(255,255,255,.4); }
 .hint { color: rgba(255,255,255,.5); font-size: 12px; margin-top: 6px; }
 
-.tabs { display: flex; gap: 8px; margin-bottom: 20px; }
-.tab-btn { flex: 1; padding: 10px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.2); border-radius: 10px; color: rgba(255,255,255,.7); font-size: 14px; font-weight: 600; cursor: pointer; transition: all .2s; }
-.tab-btn.active { background: var(--color-gold, #FBC02D); border-color: var(--color-gold, #FBC02D); color: #3E2723; }
-
 .error-msg { color: #FF6B6B; font-size: 13px; margin: 0 0 12px 0; text-align: center; }
 
-.submit-btn { width: 100%; padding: 14px; background: linear-gradient(135deg, #FBC02D, #FFA000); border: none; border-radius: 14px; color: #3E2723; font-size: 16px; font-weight: 700; cursor: pointer; transition: transform .2s, box-shadow .2s; }
-.submit-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(251,192,45,.4); }
+.action-buttons { display: flex; flex-direction: column; gap: 12px; }
+.submit-btn { width: 100%; padding: 14px; border: none; border-radius: 14px; font-size: 16px; font-weight: 700; cursor: pointer; transition: transform .2s, box-shadow .2s; }
+.submit-btn:hover:not(:disabled) { transform: translateY(-2px); }
 .submit-btn:disabled { opacity: .6; cursor: not-allowed; }
+.create-btn { background: linear-gradient(135deg, #FBC02D, #FFA000); color: #3E2723; }
+.create-btn:hover:not(:disabled) { box-shadow: 0 8px 20px rgba(251,192,45,.4); }
+.join-btn { background: linear-gradient(135deg, #4CAF50, #45a049); color: #fff; }
+.join-btn:hover:not(:disabled) { box-shadow: 0 8px 20px rgba(76,175,80,.4); }
+
+.online-lobby { min-height: 100dvh; }
+
+@media (max-width: 767px) {
+  .online-lobby { padding-bottom: env(safe-area-inset-bottom); }
+  .lobby-card { width: 100%; max-width: 360px; padding: 20px 16px; }
+  .back-btn { font-size: 13px; margin-bottom: 6px; }
+  .lobby-title { font-size: 22px; margin-bottom: 20px; }
+  .input-group { margin-bottom: 14px; }
+  .input-group label { font-size: 13px; margin-bottom: 6px; }
+  .name-input, .key-input { height: 48px; font-size: 16px; padding: 0 16px; }
+  .hint { font-size: 11px; margin-top: 4px; }
+  .error-msg { font-size: 12px; margin-bottom: 10px; }
+  .action-buttons { gap: 10px; }
+  .submit-btn { height: 48px; font-size: 15px; }
+}
+
+@media (max-width: 480px) {
+  .lobby-card { padding: 16px 14px; }
+  .lobby-title { font-size: 20px; margin-bottom: 16px; }
+  .input-group { margin-bottom: 12px; }
+  .name-input, .key-input { height: 44px; font-size: 15px; padding: 0 14px; }
+  .submit-btn { height: 46px; font-size: 14px; }
+  .action-buttons { gap: 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w1, .w2, .w3 { animation: none; }
+  .submit-btn { transition: none; }
+  .submit-btn:hover:not(:disabled) { transform: none; }
+}
 </style>

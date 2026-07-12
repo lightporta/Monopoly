@@ -106,6 +106,26 @@ export class PropertyManager {
   }
 
   /**
+   * 拆房/卖房：降低一级建筑等级，返还 buildCost / 2 的现金。
+   * 旅馆（等级4）降为3级，3级降为2级，依此类推。
+   * 返回是否成功。
+   */
+  sellBuilding(propertyId: string, player: Player): boolean {
+    const data = this.propertyMap.get(propertyId)
+    if (!data) return false
+    if (!player.properties.includes(propertyId)) return false
+    if (this.isMortgaged(propertyId, player)) return false
+
+    const level = this.getBuildingLevel(propertyId, player)
+    if (level === 0) return false
+
+    const refund = Math.floor(data.buildCost / 2)
+    player.cash += refund
+    player.buildings[propertyId] = (level - 1) as BuildingLevel
+    return true
+  }
+
+  /**
    * 抵押地产：获得 price × mortgageRatio 的现金，加入 mortgaged 列表。
    * 抵押前不能有建筑（应由 liquidate 先卖建筑）。
    * 返回是否成功。

@@ -383,8 +383,24 @@ export class Game {
       return event
     }
 
-    // 他人地产：付租金
-    return this.payRent(player, owner, propertyId, cell)
+    // 他人地产：触发交易选择
+    const data = this.propertyManager.getPropertyData(propertyId)
+    const level = this.propertyManager.getBuildingLevel(propertyId, owner)
+    const event: GameEvent = {
+      type: 'landOpponentProperty',
+      playerId: player.id,
+      cellIndex: cell.index,
+      propertyId,
+      ownerId: owner.id,
+      ownerName: owner.name,
+      amount: data?.price ?? 0,
+      buildCost: data?.buildCost ?? 0,
+      buildingLevel: level,
+      message: `${player.name} 到达 ${owner.name} 的地产 ${cell.name}`
+    }
+    this.state.pendingEvent = event
+    this.addLog(event.message)
+    return event
   }
 
   private payRent(
@@ -695,6 +711,22 @@ export class Game {
     return ok
   }
 
+  /** 拆房/卖房 */
+  sellBuilding(propertyId: string): boolean {
+    const player = this.currentPlayer()
+    if (!player) return false
+    const data = this.propertyManager.getPropertyData(propertyId)
+    if (!data) return false
+
+    const ok = this.propertyManager.sellBuilding(propertyId, player)
+    if (ok) {
+      const refund = Math.floor(data.buildCost / 2)
+      const level = this.propertyManager.getBuildingLevel(propertyId, player)
+      this.addLog(`${player.name} 拆除 ${data.name} 的建筑，返还 ${refund}（当前${level}级）`)
+    }
+    return ok
+  }
+
   /** 抵押地产 */
   mortgage(propertyId: string): boolean {
     const player = this.currentPlayer()
@@ -725,6 +757,102 @@ export class Game {
       this.addLog(`${player.name} 赎回 ${data.name}，花费 ${cost}`)
     }
     return ok
+  }
+
+  /** 计算购买他人地皮的总价（地价 + 建筑价值） */
+  getBuyPropertyPrice(propertyId: string, ownerId: number): number {
+    const data = this.propertyManager.getPropertyData(propertyId)
+    if (!data) return 0
+    const owner = this.state.players.find(p => p.id === ownerId)
+    if (!owner) return 0
+    const level = this.propertyManager.getBuildingLevel(propertyId, owner)
+    return data.price + data.buildCost * level
+  }
+
+  /** 计算购买他人房屋的价格 */
+  getBuyBuildingPrice(propertyId: string, ownerId: number): number {
+    const data = this.propertyManager.getPropertyData(propertyId)
+    if (!data) return 0
+    const owner = this.state.players.find(p => p.id === ownerId)
+    if (!owner) return 0
+    const level = this.propertyManager.getBuildingLevel(propertyId, owner)
+    return data.buildCost * level
+  }
+
+  /** 计算租赁价格（租金） */
+  getRentPrice(propertyId: string, ownerId: number, visitorId: number): number {
+    const owner = this.state.players.find(p => p.id === ownerId)
+    const visitor = this.state.players.find(p => p.id === visitorId)
+    if (!owner || !visitor) return 0
+    return this.rentCalculator.calculate(propertyId, owner, visitor)
+  }
+
+  /** 玩家间购买地皮（含建筑） */
+  buyPropertyFromPlayer(propertyId: string, buyerId: number, sellerId: number): boolean {
+    const buyer = this.state.players.find(p => p.id === buyerId)
+    const seller = this.state.players.find(p => p.id === sellerId)
+    if (!buyer || !seller) return false
+    const data = this.propertyManager.getPropertyData(propertyId)
+    if (!data) return false
+    if (!seller.properties.includes(propertyId)) return false
+
+    const level = this.propertyManager.getBuildingLevel(propertyId, seller)
+    const totalPrice = data.price + data.buildCost * level
+    if (buyer.cash < totalPrice) return false
+
+    buyer.cash -= totalPrice
+    seller.cash += totalPrice
+    seller.properties = seller.properties.filter(id => id !== propertyId)
+    delete seller.buildings[propertyId]
+    seller.mortgaged = seller.mortgaged.filter(id => id !== propertyId)
+    buyer.properties.push(propertyId)
+    buyer.buildings[propertyId] = level
+
+    this.addLog(`${buyer.name} 以 ${totalPrice}（地价${data.price}+建筑${data.buildCost * level}）向 ${seller.name} 购买 ${data.name}`)
+    return true
+  }
+
+  /** 玩家间购买房屋（不含地皮） */
+  buyBuildingFromPlayer(propertyId: string, buyerId: number, sellerId: number): boolean {
+    const buyer = this.state.players.find(p => p.id === buyerId)
+    const seller = this.state.players.find(p => p.id === sellerId)
+    if (!buyer || !seller) return false
+    const data = this.propertyManager.getPropertyData(propertyId)
+    if (!data) return false
+    if (!seller.properties.includes(propertyId)) return false
+
+    const level = this.propertyManager.getBuildingLevel(propertyId, seller)
+    if (level === 0) return false
+
+    const buildingPrice = data.buildCost * level
+    if (buyer.cash < buildingPrice) return false
+
+    buyer.cash -= buildingPrice
+    seller.cash += buildingPrice
+    seller.buildings[propertyId] = 0
+    buyer.buildings[propertyId] = level
+
+    this.addLog(`${buyer.name} 以 ${buildingPrice} 向 ${seller.name} 购买 ${data.name} 上的${level}级建筑`)
+    return true
+  }
+
+  /** 玩家间租赁（付租金） */
+  payRentToPlayer(propertyId: string, visitorId: number, ownerId: number): boolean {
+    const visitor = this.state.players.find(p => p.id === visitorId)
+    const owner = this.state.players.find(p => p.id === ownerId)
+    if (!visitor || !owner) return false
+    const data = this.propertyManager.getPropertyData(propertyId)
+    if (!data) return false
+
+    const rent = this.rentCalculator.calculate(propertyId, owner, visitor)
+    if (rent <= 0) return false
+    if (visitor.cash < rent) return false
+
+    visitor.cash -= rent
+    owner.cash += rent
+
+    this.addLog(`${visitor.name} 向 ${owner.name} 支付 ${data.name} 租金 ${rent}`)
+    return true
   }
 
   /** 兑换美食卡组合 */

@@ -236,4 +236,59 @@ function getSeatPlayers() {
 .modal-enter-active, .modal-leave-active { transition: all .3s ease; }
 .modal-enter-from, .modal-leave-to { opacity: 0; }
 .modal-enter-from .modal, .modal-leave-to .modal { transform: scale(0.9); }
+
+.online-room { min-height: 100dvh; }
+
+@media (max-width: 767px) {
+  .online-room { padding-bottom: env(safe-area-inset-bottom); }
+  .room-card { width: 100%; max-width: 360px; padding: 20px 16px; }
+  .room-header { margin-bottom: 16px; padding-bottom: 12px; }
+  .room-key { font-size: 14px; gap: 6px; margin-bottom: 8px; }
+  .key-text { font-size: 16px; letter-spacing: 1px; }
+  .copy-btn { padding: 4px 8px; font-size: 11px; }
+  .room-status { font-size: 12px; }
+  .seat-list { gap: 8px; margin-bottom: 16px; }
+  .seat-item { padding: 10px 12px; }
+  .seat-number { font-size: 11px; }
+  .player-info { gap: 6px; }
+  .host-badge { font-size: 11px; }
+  .player-name { font-size: 13px; }
+  .seat-status { font-size: 11px; }
+  .empty-seat { font-size: 13px; }
+  .error-msg { font-size: 12px; margin-bottom: 10px; }
+  .action-buttons { flex-direction: column; gap: 10px; width: 100%; }
+  .action-buttons button { width: 100%; height: 48px; font-size: 15px; }
+  .modal-overlay { align-items: flex-end; padding: 0; }
+  .modal { max-width: 100%; border-radius: 20px 20px 0 0; padding: 24px 20px; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+  .modal h3 { font-size: 18px; }
+  .modal p { font-size: 13px; margin-bottom: 16px; }
+  .modal-buttons { gap: 10px; }
+  .modal-buttons button { height: 44px; font-size: 14px; }
+}
+
+@media (max-width: 480px) {
+  .room-card { padding: 16px 14px; }
+  .room-header { margin-bottom: 14px; padding-bottom: 10px; }
+  .room-key { font-size: 13px; }
+  .key-text { font-size: 15px; }
+  .seat-item { padding: 8px 10px; flex-direction: column; align-items: flex-start; gap: 6px; }
+  .seat-number { font-size: 10px; }
+  .player-name { font-size: 12px; }
+  .seat-status { font-size: 10px; }
+  .empty-seat { font-size: 12px; }
+  .action-buttons button { height: 46px; font-size: 14px; }
+  .modal { padding: 20px 16px; padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+  .modal h3 { font-size: 16px; }
+  .modal p { font-size: 12px; margin-bottom: 14px; }
+  .modal-buttons button { height: 42px; font-size: 13px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w1, .w2, .w3 { animation: none; }
+  .status-dot.waiting { animation: none; }
+  .modal-enter-active, .modal-leave-active { transition: none; }
+  .action-buttons button { transition: none; }
+  .action-buttons button:hover:not(:disabled) { transform: none; }
+  .copy-btn { transition: none; }
+}
 </style>

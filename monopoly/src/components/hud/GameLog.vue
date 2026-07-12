@@ -39,13 +39,14 @@ function parseLog(log: string): LogEntry {
   }
 
   if (matchedPlayer) {
+    const startsWithName = log.startsWith(matchedPlayer.name)
     return {
       id: nextLogId++,
       playerId: matchedPlayer.id,
       playerName: matchedPlayer.name,
       playerToken: matchedPlayer.token,
       playerColor: matchedPlayer.color,
-      text: log.replace(matchedPlayer.name, '').trim(),
+      text: startsWithName ? log.replace(matchedPlayer.name, '').trim() : log,
       timestamp: formatTime()
     }
   }

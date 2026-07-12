@@ -42,6 +42,11 @@ export const useGameStore = defineStore('game', () => {
     return p && !p.isAI && !p.bankrupt && state.value.phase === 'idle' && !pendingModal.value
   })
 
+  const canSkipTurn = computed(() => {
+    const p = currentPlayer.value
+    return p && !p.isAI && !p.bankrupt && !pendingModal.value && (state.value.phase === 'idle' || state.value.phase === 'event')
+  })
+
   function setOnlineMode(online: boolean) {
     isOnlineMode.value = online
   }
@@ -50,9 +55,9 @@ export const useGameStore = defineStore('game', () => {
     onlineGameState.value = gs
   }
 
-  // 同步引擎状态
+  // 同步引擎状态（深拷贝确保 Vue 响应式更新）
   function syncState() {
-    state.value = { ...engine.getSnapshot() }
+    state.value = JSON.parse(JSON.stringify(engine.getSnapshot()))
   }
 
   // 初始化游戏
@@ -102,11 +107,14 @@ export const useGameStore = defineStore('game', () => {
     if (event.type === 'bankrupt') {
       syncState()
       checkVictoryAfterEvent()
+      if (state.value.phase !== 'ended') {
+        endTurn()
+      }
       return
     }
 
     // 需要玩家交互的事件
-    if (event.type === 'buyProperty' || event.type === 'teleportAnyEmpty' || event.type === 'moveAnyCell') {
+    if (event.type === 'buyProperty' || event.type === 'teleportAnyEmpty' || event.type === 'moveAnyCell' || event.type === 'landOpponentProperty') {
       pendingModal.value = event
       // AI 自动处理
       if (isCurrentPlayerAI.value) {
@@ -173,6 +181,13 @@ export const useGameStore = defineStore('game', () => {
     return ok
   }
 
+  // 拆房
+  function sellBuilding(propertyId: string) {
+    const ok = engine.sellBuilding(propertyId)
+    if (ok) syncState()
+    return ok
+  }
+
   // 抵押
   function mortgage(propertyId: string) {
     const ok = engine.mortgage(propertyId)
@@ -185,6 +200,38 @@ export const useGameStore = defineStore('game', () => {
     const ok = engine.redeem(propertyId)
     if (ok) syncState()
     return ok
+  }
+
+  // 玩家间交易：买地皮
+  function buyPropertyFromPlayer(propertyId: string, buyerId: number, sellerId: number) {
+    const ok = engine.buyPropertyFromPlayer(propertyId, buyerId, sellerId)
+    if (ok) syncState()
+    return ok
+  }
+
+  // 玩家间交易：买房屋
+  function buyBuildingFromPlayer(propertyId: string, buyerId: number, sellerId: number) {
+    const ok = engine.buyBuildingFromPlayer(propertyId, buyerId, sellerId)
+    if (ok) syncState()
+    return ok
+  }
+
+  // 玩家间交易：租房
+  function payRentToPlayer(propertyId: string, visitorId: number, ownerId: number) {
+    const ok = engine.payRentToPlayer(propertyId, visitorId, ownerId)
+    if (ok) syncState()
+    return ok
+  }
+
+  // 交易价格计算
+  function getBuyPropertyPrice(propertyId: string, ownerId: number): number {
+    return engine.getBuyPropertyPrice(propertyId, ownerId)
+  }
+  function getBuyBuildingPrice(propertyId: string, ownerId: number): number {
+    return engine.getBuyBuildingPrice(propertyId, ownerId)
+  }
+  function getRentPrice(propertyId: string, ownerId: number, visitorId: number): number {
+    return engine.getRentPrice(propertyId, ownerId, visitorId)
   }
 
   // 兑换美食卡
@@ -201,6 +248,8 @@ export const useGameStore = defineStore('game', () => {
       return
     }
 
+    const prevPlayerIndex = state.value.currentPlayerIndex
+
     engine.endTurn()
     syncState()
 
@@ -209,12 +258,36 @@ export const useGameStore = defineStore('game', () => {
       return
     }
 
-    // 真人对战：回合交接提示
-    if (state.value.mode === 'pvp' && !isCurrentPlayerAI.value) {
+    // 真人对战：仅在玩家切换时显示回合交接提示
+    if (state.value.mode === 'pvp' && !isCurrentPlayerAI.value && state.value.currentPlayerIndex !== prevPlayerIndex) {
       showTurnHandoff.value = true
     }
 
     // AI 回合
+    if (isCurrentPlayerAI.value) {
+      setTimeout(() => runAITurn(), 1000)
+    }
+  }
+
+  // 放弃本轮（跳过当前回合，状态不变）
+  function skipTurn() {
+    const p = currentPlayer.value
+    if (!p || p.isAI) return
+    if (state.value.phase === 'ended') {
+      showVictory.value = true
+      return
+    }
+    const prevPlayerIndex = state.value.currentPlayerIndex
+    lastEventMessage.value = `${p.name} 放弃了本轮`
+    engine.endTurn()
+    syncState()
+    if (state.value.winner) {
+      showVictory.value = true
+      return
+    }
+    if (state.value.mode === 'pvp' && !isCurrentPlayerAI.value && state.value.currentPlayerIndex !== prevPlayerIndex) {
+      showTurnHandoff.value = true
+    }
     if (isCurrentPlayerAI.value) {
       setTimeout(() => runAITurn(), 1000)
     }
@@ -230,6 +303,10 @@ export const useGameStore = defineStore('game', () => {
 
   function cancelExit() {
     showExitConfirm.value = false
+  }
+
+  function clearPendingEvent() {
+    pendingModal.value = null
   }
 
   function confirmExit() {
@@ -335,6 +412,35 @@ export const useGameStore = defineStore('game', () => {
       return
     }
 
+    if (event.type === 'landOpponentProperty') {
+      // AI 落到对手地产：根据现金决定行为
+      const aiPlayer = currentPlayer.value
+      if (aiPlayer && event.propertyId && event.ownerId) {
+        // AI 策略：70% 概率租房，20% 概率买地皮（如果有钱），10% 不操作
+        const rent = engine.getRentPrice(event.propertyId, event.ownerId, aiPlayer.id)
+        const prop = properties.value.find(p => p.id === event.propertyId)
+        const level = getBuildingLevel(event.propertyId, event.ownerId)
+        const buyPrice = prop ? prop.price + prop.buildCost * level : 0
+        const roll = Math.random()
+        if (roll < 0.2 && aiPlayer.cash >= buyPrice + 2000) {
+          // 买地皮
+          engine.buyPropertyFromPlayer(event.propertyId, aiPlayer.id, event.ownerId)
+          syncState()
+          lastEventMessage.value = `${aiPlayer.name} 向 ${event.ownerName} 购买了 ${prop?.name}`
+        } else if (roll < 0.9 && aiPlayer.cash >= rent) {
+          // 租房
+          engine.payRentToPlayer(event.propertyId, aiPlayer.id, event.ownerId)
+          syncState()
+          lastEventMessage.value = `${aiPlayer.name} 向 ${event.ownerName} 支付了 ${prop?.name} 租金 ¥${rent}`
+        }
+        // else: 不操作
+      }
+      pendingModal.value = null
+      checkVictoryAfterEvent()
+      endTurn()
+      return
+    }
+
     if (event.type === 'reroll') {
       setTimeout(() => runAITurn(), 800)
       return
@@ -406,6 +512,7 @@ export const useGameStore = defineStore('game', () => {
     isCurrentPlayerAI,
     canRollDice,
     canManageAssets,
+    canSkipTurn,
     setOnlineMode,
     setOnlineGameState,
     initGame,
@@ -414,13 +521,22 @@ export const useGameStore = defineStore('game', () => {
     declineBuy,
     teleportTo,
     buildHouse,
+    sellBuilding,
     mortgage,
     redeem,
+    buyPropertyFromPlayer,
+    buyBuildingFromPlayer,
+    payRentToPlayer,
+    getBuyPropertyPrice,
+    getBuyBuildingPrice,
+    getRentPrice,
     redeemFood,
     endTurn,
+    skipTurn,
     confirmTurnHandoff,
     requestExit,
     cancelExit,
+    clearPendingEvent,
     confirmExit,
     getEmptyProperties,
     getPlayerProperties,
