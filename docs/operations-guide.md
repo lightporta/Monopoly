@@ -1,8 +1,8 @@
-# 🛠️ 运维总览（服务器管理一站式手册）
+# 🚀 游戏部署与运维指南（面向部署者）
 
-> **最后更新**：2026-07-13 V3.1
-> **服务器**：腾讯云轻量 Ubuntu（公网 IP `140.143.242.241`）
-> **用途**：不用翻聊天记录，所有服务器操作命令都在这里
+> **最后更新**：2026-07-14 V3.3
+> **适用环境**：腾讯云轻量 Ubuntu 22.04（2核2G 及以上）
+> **说明**：本指南面向将自己 clone 的项目部署到自有云服务器的部署者。文中 `你的服务器IP` 请替换为你自己服务器的公网 IP。
 
 ---
 
@@ -63,7 +63,7 @@ pm2 restart monopoly
 ```bash
 pm2 logs monopoly --lines 5 --nostream
 ```
-看到服务重启日志即可。浏览器访问 `http://140.143.242.241` 测试。
+看到服务重启日志即可。浏览器访问 `http://你的服务器IP` 测试。
 
 ---
 
@@ -146,7 +146,7 @@ ls -la /root/.pm2/logs/
 
 在本地终端执行：
 ```bash
-scp root@140.143.242.241:/root/.pm2/logs/monopoly-out.log ./game-logs.txt
+scp root@你的服务器IP:/root/.pm2/logs/monopoly-out.log ./game-logs.txt
 ```
 
 ---
@@ -187,7 +187,7 @@ npm install -g pm2
 
 # 2. 克隆项目
 cd /opt
-git clone https://github.com/lightporta/Monopoly.git
+git clone https://github.com/<你的用户名>/Monopoly.git
 cd Monopoly/server
 npm install
 
@@ -200,7 +200,7 @@ pm2 startup   # 按提示复制粘贴执行的命令
 #    添加规则：TCP 80 允许
 ```
 
-访问 `http://140.143.242.241` 验证。
+访问 `http://你的服务器IP` 验证。
 
 ---
 
@@ -261,7 +261,7 @@ wscat -c ws://localhost:80/ws
 # 应显示 connected
 
 # 外部测试（公网 IP）
-wscat -c ws://140.143.242.241:80/ws
+wscat -c ws://你的服务器IP:80/ws
 # 应显示 connected
 ```
 
@@ -273,7 +273,7 @@ wscat -c ws://140.143.242.241:80/ws
 
 **第六步：检查浏览器地址栏**
 
-- 访问地址必须是 `http://140.143.242.241`（**http**，不是 https）
+- 访问地址必须是 `http://你的服务器IP`（**http**，不是 https）
 - 如果浏览器自动跳转 https，会显示"连接被拒绝"
 - 用无痕窗口或手动输入 `http://` 开头
 
@@ -345,7 +345,7 @@ df -h                               # 确认磁盘未满
 
 ```
 用户浏览器
-    │ http://140.143.242.241
+    │ http://你的服务器IP
     ▼
 ┌─────────────────────┐
 │  Node.js (PM2 守护)  │  80 端口
@@ -355,7 +355,7 @@ df -h                               # 确认磁盘未满
 └─────────────────────┘
     │ git pull origin main
     ▼
-GitHub: lightporta/Monopoly
+GitHub: <你的用户名>/Monopoly
 ```
 
 > **文档结束** | 有问题先查第七节故障排查，仍无法解决提 GitHub Issue。

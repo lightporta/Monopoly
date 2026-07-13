@@ -298,6 +298,7 @@ export interface GameConfig {
     sellBuildingRatio: number
     auctionStartRatio: number
     auctionMinStep: number
+    penaltyMultiplier: number
   }
   rentMultipliers: {
     empty: number
@@ -308,6 +309,8 @@ export interface GameConfig {
   }
   victory: {
     ironTriangle: string[]
+    ironTriangleNeedHouses: boolean
+    ironTriangleMinAssets: number
   }
   ecology: {
     initial: number

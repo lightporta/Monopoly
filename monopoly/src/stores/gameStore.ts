@@ -21,6 +21,12 @@ export const useGameStore = defineStore('game', () => {
   const onlineGameState = ref<any>(null)
   // 联机模式：自己的座位号（seatIndex）
   const myPlayerId = ref<number>(0)
+  // 记录上一局配置，供"再玩一局"使用
+  const lastGameMode = ref<GameMode>('pvp')
+  const lastGameConfigs = ref<PlayerConfig[]>([])
+  // 联机房间解散提示
+  const showRoomDisbanded = ref(false)
+  const roomDisbandedMessage = ref('')
 
   const pendingModal = ref<GameEvent | null>(null)
   const showTurnHandoff = ref(false)
@@ -41,6 +47,9 @@ export const useGameStore = defineStore('game', () => {
   const currentPlayer = computed<Player | null>(() => {
     return state.value.players[state.value.currentPlayerIndex] ?? null
   })
+
+  // 当前游戏模式（pvp 同设备 / pve 人机）；联机模式叠加在 pvp 之上
+  const gameMode = computed<GameMode>(() => state.value.mode)
 
   const isCurrentPlayerAI = computed(() => currentPlayer.value?.isAI ?? false)
 
@@ -123,10 +132,31 @@ export const useGameStore = defineStore('game', () => {
     showVictory.value = false
     lastEventMessage.value = '游戏开始！'
 
+    // 记录本局配置，供"再玩一局"使用（联机模式不使用本地重开）
+    lastGameMode.value = mode
+    lastGameConfigs.value = playerConfigs.map((c) => ({ ...c }))
+
     // 如果先手是 AI，触发 AI 回合
     if (isCurrentPlayerAI.value) {
       setTimeout(() => runAITurn(), 800)
     }
+  }
+
+  /** 再玩一局：用上一局相同的模式与玩家配置重开（仅单机模式） */
+  function playAgain() {
+    initGame(lastGameMode.value, lastGameConfigs.value)
+    showVictory.value = false
+  }
+
+  /** 显示联机房间解散提示 */
+  function notifyRoomDisbanded(msg: string) {
+    showRoomDisbanded.value = true
+    roomDisbandedMessage.value = msg
+  }
+
+  function dismissRoomDisbanded() {
+    showRoomDisbanded.value = false
+    roomDisbandedMessage.value = ''
   }
 
   // 掷骰子
@@ -256,7 +286,11 @@ export const useGameStore = defineStore('game', () => {
       return true
     }
     const ok = engine.buildHouse(propertyId)
-    if (ok) syncState()
+    if (ok) {
+      syncState()
+      // 建房可能满足铁三角胜利条件（各地标建有房屋）
+      checkVictoryAfterEvent()
+    }
     return ok
   }
 
@@ -441,10 +475,10 @@ export const useGameStore = defineStore('game', () => {
   function runAITurn() {
     if (!isCurrentPlayerAI.value || state.value.phase === 'ended') return
 
-    // AI 资产管理（建造/抵押）
-    const ai = engine.getAIPlayer()
     const player = currentPlayer.value
     if (!player) return
+    // 按当前 AI 玩家的难度取决策器
+    const ai = engine.getAIPlayer(player.aiLevel ?? 'normal')
 
     // ---- 四大海洋板块：AI 简单决策 ----
     aiOceanDecisions(player, ai)
@@ -457,6 +491,9 @@ export const useGameStore = defineStore('game', () => {
       }
     }
     syncState()
+    // 建房可能触发铁三角胜利，若已结束则显示弹窗并中止 AI 回合
+    checkVictoryAfterEvent()
+    if (state.value.winner) return
 
     // 掷骰
     diceAnimating.value = true
@@ -536,7 +573,7 @@ export const useGameStore = defineStore('game', () => {
       const player = currentPlayer.value
       const prop = properties.value.find(p => p.id === event.propertyId)
       if (player && prop) {
-        const ai = engine.getAIPlayer()
+        const ai = engine.getAIPlayer(player.aiLevel ?? 'normal')
         if (ai.decideBuy(player, prop)) {
           engine.buyProperty(event.propertyId)
           syncState()
@@ -551,8 +588,8 @@ export const useGameStore = defineStore('game', () => {
     }
 
     if (event.type === 'teleportAnyEmpty') {
-      const ai = engine.getAIPlayer()
       const player = currentPlayer.value
+      const ai = engine.getAIPlayer(player?.aiLevel ?? 'normal')
       if (player) {
         const emptyProps = getEmptyProperties()
         const target = ai.decideTeleportTarget(emptyProps, player)
@@ -583,21 +620,23 @@ export const useGameStore = defineStore('game', () => {
     }
 
     if (event.type === 'landOpponentProperty') {
-      // AI 落到对手地产：根据现金决定行为
+      // AI 落到对手地产：按难度分档决定行为
       const aiPlayer = currentPlayer.value
       if (aiPlayer && event.propertyId && event.ownerId) {
-        // AI 策略：70% 概率租房，20% 概率买地皮（如果有钱），10% 不操作
+        const ai = engine.getAIPlayer(aiPlayer.aiLevel ?? 'normal')
+        // 概率分档：easy 基本只租房；hard 更倾向抄底买地皮
+        const w = ai.getLandOpponentWeights()
         const rent = engine.getRentPrice(event.propertyId, event.ownerId, aiPlayer.id)
         const prop = properties.value.find(p => p.id === event.propertyId)
         const level = getBuildingLevel(event.propertyId, event.ownerId)
         const buyPrice = prop ? prop.price + prop.buildCost * level : 0
         const roll = Math.random()
-        if (roll < 0.2 && aiPlayer.cash >= buyPrice + 2000) {
+        if (roll < w.buyLand && aiPlayer.cash >= buyPrice + 2000) {
           // 买地皮
           engine.buyPropertyFromPlayer(event.propertyId, aiPlayer.id, event.ownerId)
           syncState()
           lastEventMessage.value = `${aiPlayer.name} 向 ${event.ownerName} 购买了 ${prop?.name}`
-        } else if (roll < 0.9 && aiPlayer.cash >= rent) {
+        } else if (roll < w.buyLand + w.rent && aiPlayer.cash >= rent) {
           // 租房
           engine.payRentToPlayer(event.propertyId, aiPlayer.id, event.ownerId)
           syncState()
@@ -840,6 +879,7 @@ export const useGameStore = defineStore('game', () => {
     diceAnimating,
     lastEventMessage,
     currentPlayer,
+    gameMode,
     isCurrentPlayerAI,
     canRollDice,
     canManageAssets,
@@ -847,6 +887,11 @@ export const useGameStore = defineStore('game', () => {
     setOnlineMode,
     setOnlineGameState,
     setMyPlayerId,
+    showRoomDisbanded,
+    roomDisbandedMessage,
+    notifyRoomDisbanded,
+    dismissRoomDisbanded,
+    playAgain,
     applyOnlineState,
     sendOnlineAction,
     onlineRollDice,

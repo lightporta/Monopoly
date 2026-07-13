@@ -1,4 +1,8 @@
-// AI 决策模块：购买 / 建房 / 抵押 / 传送目标 选择
+// AI 决策模块：购买 / 建房 / 抵押 / 传送目标 / 四大海洋板块
+// 三档难度策略梯度：
+//   easy  （新手导游）——保守、随机性强、不主动交易/集齐、建房慢，真人最容易赢
+//   normal（本地商人）——中庸，按基础性价比决策
+//   hard  （仙境霸主）——积极集齐色块、建房补齐集齐组、评估交易 ROI、积极投资
 
 import type { AILevel, ColorGroup, GameConfig, Player, Property } from './types'
 import { PropertyManager } from './Property'
@@ -18,28 +22,39 @@ export class AIPlayer {
     this.propertyManager = propertyManager
   }
 
+  getLevel(): AILevel {
+    return this.aiLevel
+  }
+
   /**
-   * 决定是否购买地产：
-   * - easy: 现金 >= price × 1.2
+   * 决定是否购买地产（难度越高越积极、越注重集齐色块）。
+   * - easy: 现金 >= price × 2.0，且有 30% 概率直接放弃（随机性强）
    * - normal: 现金 >= price × 1.5
-   * - hard: 现金 >= price × 1.5 且考虑颜色组集齐收益
-   * 返回 true 表示购买。
+   * - hard: 现金 >= price × 1.3，且优先购买能集齐色块的地标
    */
   decideBuy(player: Player, property: Property, config?: GameConfig): boolean {
-    const ratio = this.aiLevel === 'easy' ? 1.2 : 1.5
+    const ratio = this.aiLevel === 'easy' ? 2.0 : this.aiLevel === 'hard' ? 1.3 : 1.5
     if (player.cash < property.price * ratio) return false
 
+    // easy：有概率放弃购买，决策更具随机性
+    if (this.aiLevel === 'easy' && Math.random() < 0.3) return false
+
     if (this.aiLevel === 'hard') {
-      // hard 模式：若该颜色组中已有玩家拥有的地产，则更愿意购买（集齐加成）
+      // hard：若该颜色组已有自己地产或组小易集齐，强烈倾向购买
       const group = this.propertyManager.getColorGroup(property.colorGroup)
       if (group) {
-        const ownedInGroup = group.propertyIds.filter((id) =>
-          player.properties.includes(id)
-        ).length
-        // 已有同组地产，或该组地产总数较少（更易集齐）时倾向购买
-        if (ownedInGroup > 0 || group.propertyIds.length <= 4) {
-          return true
-        }
+        const ownedInGroup = group.propertyIds.filter((id) => player.properties.includes(id)).length
+        if (ownedInGroup > 0 || group.propertyIds.length <= 4) return true
+      }
+      return true
+    }
+
+    if (this.aiLevel === 'normal') {
+      // normal：同组已有地产时更愿意买
+      const group = this.propertyManager.getColorGroup(property.colorGroup)
+      if (group) {
+        const ownedInGroup = group.propertyIds.filter((id) => player.properties.includes(id)).length
+        if (ownedInGroup > 0) return true
       }
     }
 
@@ -47,38 +62,45 @@ export class AIPlayer {
   }
 
   /**
-   * 决定在哪块地上建房：
-   * 优先选择能立即集齐颜色组加成的地产；
-   * 其次选择等级最低的地产；
-   * 返回 propertyId 或 null。
+   * 决定在哪块地上建房。难度越高越注重"集齐色块"和"均匀发展"。
+   * - easy: 倾向随机建房，偶尔跳过
+   * - normal: 按色组拥有比例 + 等级最低优先
+   * - hard: 严格优先补齐接近集齐的色组，并积极建房升旅馆
    */
   decideBuild(
     player: Player,
     properties: Property[],
     colorGroups: ColorGroup[]
   ): string | null {
+    // easy：40% 概率本轮不建房（发展缓慢）
+    if (this.aiLevel === 'easy' && Math.random() < 0.4) return null
+
+    const maxLevel = this.aiLevel === 'hard' ? 4 : 3 // hard 会考虑升旅馆
     const candidates = player.properties
       .filter((id) => !this.propertyManager.isMortgaged(id, player))
       .map((id) => this.propertyManager.getPropertyData(id))
       .filter((p): p is Property => !!p)
       .filter((p) => {
         const level = this.propertyManager.getBuildingLevel(p.id, player)
-        return level < 3 // 只建房屋，旅馆升级由更高优先级逻辑触发
+        return level < maxLevel
       })
       .filter((p) => player.cash >= p.buildCost)
 
     if (candidates.length === 0) return null
 
-    // 优先：在该颜色组中拥有的数量最多（接近集齐）的地产
     const groupCount = (groupId: string): number => {
       const group = colorGroups.find((g) => g.id === groupId)
       if (!group) return 0
       return group.propertyIds.filter((id) => player.properties.includes(id)).length
     }
-
     const groupSize = (groupId: string): number => {
       const group = colorGroups.find((g) => g.id === groupId)
       return group ? group.propertyIds.length : 0
+    }
+
+    if (this.aiLevel === 'easy') {
+      // easy：随机挑一块可建的，不讲究策略
+      return candidates[Math.floor(Math.random() * candidates.length)].id
     }
 
     candidates.sort((a, b) => {
@@ -86,11 +108,9 @@ export class AIPlayer {
       const aSize = groupSize(a.colorGroup)
       const bOwned = groupCount(b.colorGroup)
       const bSize = groupSize(b.colorGroup)
-      // 拥有比例高者优先
       const aRatio = aSize === 0 ? 0 : aOwned / aSize
       const bRatio = bSize === 0 ? 0 : bOwned / bSize
       if (bRatio !== aRatio) return bRatio - aRatio
-      // 比例相同时，选建筑等级较低的优先均匀发展
       const aLevel = this.propertyManager.getBuildingLevel(a.id, player)
       const bLevel = this.propertyManager.getBuildingLevel(b.id, player)
       return aLevel - bLevel
@@ -100,12 +120,13 @@ export class AIPlayer {
   }
 
   /**
-   * 决定抵押哪块地产（现金 < 2000 时触发）：
-   * 优先抵押无建筑、颜色组中拥有数量最少的地产。
-   * 返回 propertyId 或 null。
+   * 决定抵押哪块地产。
+   * - easy: 现金 < 3000 才抵押，且随便挑一块无建筑的
+   * - normal/hard: 现金 < 2000 触发，保留高价值/接近集齐的地产
    */
   decideMortgage(player: Player, properties: Property[]): string | null {
-    if (player.cash >= 2000) return null
+    const threshold = this.aiLevel === 'easy' ? 3000 : 2000
+    if (player.cash >= threshold) return null
 
     const candidates = player.properties
       .filter((id) => !this.propertyManager.isMortgaged(id, player))
@@ -115,48 +136,63 @@ export class AIPlayer {
 
     if (candidates.length === 0) return null
 
-    // 抵押价格最低的地产（保留高价地产）
+    if (this.aiLevel === 'easy') {
+      // easy：随机抵押，可能抵押掉重要地产
+      return candidates[Math.floor(Math.random() * candidates.length)].id
+    }
+    // normal/hard：抵押价格最低的地产（保留高价地产与接近集齐的色组）
     candidates.sort((a, b) => a.price - b.price)
     return candidates[0].id
   }
 
   /**
-   * 决定传送目标（用于 anyEmpty 传送格）：
-   * 从空地中挑选玩家买得起且性价比最高的地产。
-   * 返回 propertyId 或 null。
+   * 决定传送目标：从空地中挑选买得起且性价比最高的地产。
+   * - easy: 随机挑一块买得起的
+   * - normal/hard: 按 baseRent/price 性价比排序
    */
   decideTeleportTarget(emptyProperties: Property[], player: Player): string | null {
-    const affordable = emptyProperties.filter((p) => player.cash >= p.price * 1.5)
+    const ratio = this.aiLevel === 'easy' ? 2.0 : 1.5
+    const affordable = emptyProperties.filter((p) => player.cash >= p.price * ratio)
     if (affordable.length === 0) return null
 
-    // 性价比：baseRent / price 越高越优
+    if (this.aiLevel === 'easy') {
+      return affordable[Math.floor(Math.random() * affordable.length)].id
+    }
     affordable.sort((a, b) => b.baseRent / b.price - a.baseRent / a.price)
     return affordable[0].id
   }
 
-  // ---------- 四大海洋板块 AI 决策 ----------
-
-  getLevel(): AILevel {
-    return this.aiLevel
-  }
+  // ---------- 落对手地产的交易决策（供 gameStore 调用） ----------
 
   /**
-   * 决定是否购买装备：拥有供应点地标、资金充足（≥ 装备价 × 1.5）、且拥有匹配色块地产时倾向购买。
-   * 返回 { equipId, boundPropertyId } 或 null。
+   * 返回 [买地皮概率, 租房概率, 不操作概率]，按难度分档。
+   * easy 基本只租房；hard 更倾向抄底买地皮。
+   */
+  getLandOpponentWeights(): { buyLand: number; rent: number; skip: number } {
+    if (this.aiLevel === 'easy') return { buyLand: 0.05, rent: 0.85, skip: 0.1 }
+    if (this.aiLevel === 'hard') return { buyLand: 0.4, rent: 0.5, skip: 0.1 }
+    return { buyLand: 0.2, rent: 0.7, skip: 0.1 } // normal
+  }
+
+  // ---------- 四大海洋板块 AI 决策 ----------
+
+  /**
+   * 决定是否购买装备。
+   * - easy: 资金阈值高(×2.0)，少买
+   * - normal: ×1.5
+   * - hard: ×1.2，积极购买以扩大过路费加成
    */
   decideBuyEquipment(
     player: Player,
     availableEquipment: { equipId: string; soldAtPropertyId: string; price: number; effectColorGroup?: string }[]
   ): { equipId: string; soldAtPropertyId: string; boundPropertyId: string | null } | null {
-    const ratio = this.aiLevel === 'easy' ? 1.3 : 1.5
+    const ratio = this.aiLevel === 'easy' ? 2.0 : this.aiLevel === 'hard' ? 1.2 : 1.5
     for (const eq of availableEquipment) {
       if (player.cash < eq.price * ratio) continue
       if (!player.properties.includes(eq.soldAtPropertyId)) continue
       if (!eq.effectColorGroup) {
-        // 监测船 / 风电塔：全局生效，直接买
         return { equipId: eq.equipId, soldAtPropertyId: eq.soldAtPropertyId, boundPropertyId: null }
       }
-      // rentBoost 类：找一块自己拥有的同色块地产装配
       const target = player.properties.find((id) => {
         const prop = this.propertyManager.getPropertyData(id)
         return prop?.colorGroup === eq.effectColorGroup
@@ -169,20 +205,20 @@ export class AIPlayer {
   }
 
   /**
-   * 决定是否建造养殖场：拥有养殖地产、未建房屋、资金充足（≥ 1500 × 1.5）时倾向建造/升级。
-   * 返回 propertyId 或 null。
+   * 决定是否建造养殖场。
+   * - easy: 资金阈值高(×2.0)
+   * - normal: ×1.5
+   * - hard: ×1.2
    */
   decideBuildAquaculture(
     player: Player,
     aquaProperties: { propertyId: string; cost: number }[]
   ): string | null {
-    const ratio = this.aiLevel === 'easy' ? 1.3 : 1.5
+    const ratio = this.aiLevel === 'easy' ? 2.0 : this.aiLevel === 'hard' ? 1.2 : 1.5
     for (const aq of aquaProperties) {
       if (player.cash < aq.cost * ratio) continue
       if (!player.properties.includes(aq.propertyId)) continue
-      // 已有建筑则不可建养殖
       if ((player.buildings[aq.propertyId] ?? 0) > 0) continue
-      // 已达最高级跳过
       const cur = player.aquaculture[aq.propertyId]?.level ?? 0
       if (cur >= 3) continue
       return aq.propertyId
@@ -191,22 +227,29 @@ export class AIPlayer {
   }
 
   /**
-   * 决定是否投资核电/风电：资金充裕（≥ 5000）时倾向投资。
-   * 优先风电（零风险），其次核电。
-   * 返回 projectId 或 null。
+   * 决定是否投资核电/风电。
+   * - easy: 只投风电且资金阈值高，回避核电高风险
+   * - normal: 风电优先，资金充裕才碰核电
+   * - hard: 积极投资，风电核电都考虑
    */
   decideInvest(
     player: Player,
     availableProjects: { projectId: string; cost: number; riskLevel: 'low' | 'high' }[]
   ): string | null {
-    if (player.cash < 5000) return null
-    const ratio = this.aiLevel === 'easy' ? 1.5 : 1.3
-    // 风电优先（低风险）
-    const wind = availableProjects.find((p) => p.riskLevel === 'low' && player.cash >= p.cost * ratio)
+    const minCash = this.aiLevel === 'easy' ? 7000 : 5000
+    if (player.cash < minCash) return null
+
+    const windRatio = this.aiLevel === 'easy' ? 1.6 : this.aiLevel === 'hard' ? 1.2 : 1.3
+    const wind = availableProjects.find((p) => p.riskLevel === 'low' && player.cash >= p.cost * windRatio)
     if (wind) return wind.projectId
-    // 资金很充裕时才考虑核电（高风险）
-    if (player.cash >= 8000) {
-      const nuclear = availableProjects.find((p) => p.riskLevel === 'high' && player.cash >= p.cost * ratio)
+
+    // easy 不投资核电（风险厌恶）
+    if (this.aiLevel === 'easy') return null
+
+    const nuclearCashThreshold = this.aiLevel === 'hard' ? 6500 : 8000
+    const nuclearRatio = this.aiLevel === 'hard' ? 1.2 : 1.3
+    if (player.cash >= nuclearCashThreshold) {
+      const nuclear = availableProjects.find((p) => p.riskLevel === 'high' && player.cash >= p.cost * nuclearRatio)
       if (nuclear) return nuclear.projectId
     }
     return null

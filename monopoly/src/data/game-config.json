@@ -21,7 +21,8 @@
     "redeemMultiplier": 1.1,
     "sellBuildingRatio": 0.5,
     "auctionStartRatio": 0.5,
-    "auctionMinStep": 100
+    "auctionMinStep": 100,
+    "penaltyMultiplier": 2.0
   },
   "rentMultipliers": {
     "empty": 1.0,
@@ -31,7 +32,9 @@
     "hotel": 3.5
   },
   "victory": {
-    "ironTriangle": ["烟台山", "蓬莱阁", "养马岛"]
+    "ironTriangle": ["烟台山", "蓬莱阁", "养马岛"],
+    "ironTriangleNeedHouses": true,
+    "ironTriangleMinAssets": 30000
   },
   "ecology": {
     "initial": 50,

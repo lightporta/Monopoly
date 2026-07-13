@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGameStore } from '@/stores/gameStore'
+import { useOnlineStore } from '@/stores/onlineStore'
 import { onlineSDK } from '@/online/onlineSdk.js'
 import TopBar from '@/components/hud/TopBar.vue'
 import BoardMap from '@/components/board/BoardMap.vue'
@@ -25,6 +26,7 @@ import EcologyDetailModal from '@/components/modals/EcologyDetailModal.vue'
 
 const router = useRouter()
 const store = useGameStore()
+const onlineStore = useOnlineStore()
 
 const showBuild = ref(false)
 const showFoodRedeem = ref(false)
@@ -42,11 +44,6 @@ const showTeleport = computed(() => {
   return t === 'teleportAnyEmpty' || t === 'moveAnyCell'
 })
 const showLandedOnOpponent = computed(() => store.pendingModal?.type === 'landOpponentProperty')
-
-function onVictoryClose() {
-  store.confirmExit()
-  router.push('/')
-}
 
 function checkMobile() {
   isMobile.value = window.innerWidth < 768
@@ -73,6 +70,24 @@ onMounted(() => {
     onlineUnsubs.push(onlineSDK.on('game:ended', (data: any) => {
       // 服务端已通过 game:state 广播 ended 状态，这里做额外 UI 处理
       store.applyOnlineState({ ...store.onlineGameState, phase: 'ended', winner: data.winner ? { name: data.winner } : null, winReason: data.winReason })
+    }))
+    // 房主解散房间：所有人回首页并提示
+    onlineUnsubs.push(onlineSDK.on('room:disbanded', () => {
+      const isHost = onlineStore.isHost
+      onlineStore.reset()
+      store.setOnlineMode(false)
+      store.showVictory = false
+      // 房主看到"你已解散该房间"，其他人看到"房主已解散该房间"
+      store.notifyRoomDisbanded(isHost ? '你已解散该房间' : '房主已解散该房间')
+      router.push('/')
+    }))
+    // 房主开下一局：重新进入游戏界面
+    onlineUnsubs.push(onlineSDK.on('room:started', (data: any) => {
+      store.showVictory = false
+      if (data.playerSeats) onlineStore.setGameStarted(data.playerSeats)
+      if (data.gameState) {
+        store.applyOnlineState(data.gameState)
+      }
     }))
   }
 })
@@ -167,7 +182,7 @@ onUnmounted(() => {
     <FoodRedeemModal v-model:show="showFoodRedeem" />
     <TurnHandoffModal v-if="store.showTurnHandoff" />
     <ExitConfirmModal v-if="store.showExitConfirm" />
-    <VictoryModal v-if="store.showVictory" @close="onVictoryClose" />
+    <VictoryModal v-if="store.showVictory" />
     <!-- 四大海洋板块弹窗 -->
     <EquipmentModal v-model:show="store.showEquipmentModal" />
     <AquacultureModal v-model:show="store.showAquacultureModal" />

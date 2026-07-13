@@ -1,5 +1,50 @@
 # 更新日志
 
+## v3.3.0 - 玩法平衡 + AI三难度 + 胜负重构 + 胜利弹窗 + UI优化（2026-07-14）
+
+### 玩法：扣钱力度加大（保证游戏可终结）
+- 新增配置项 `economy.penaltyMultiplier`（默认 2.0）：租金、卡牌罚款、核事故救援费统一 ×2
+- 过起点奖励、投资分红、养殖收益等盈利项不受影响
+- 前后端引擎同步（RentCalculator / server.engine.calculateRent / applyCardEffect）
+
+### 玩法：胜负规则重构
+- **破产胜利优先**：Game.checkVictory 调整为先检查破产、再检查铁三角
+- **仙境铁三角新条件**：①拥有烟台山+蓬莱阁+养马岛 ②各地标均建有房屋（≥1级）③总资产 > 30000
+- 新增配置项 `victory.ironTriangleNeedHouses` / `ironTriangleMinAssets`
+- VictoryChecker / server.engine.checkIronTriangle 同步；资产口径统一用 estimatePlayerAssets（含四大板块）
+- **修复建房后未触发胜利检查**：buildHouse 成功后立即 checkVictory/checkIronTriangle（前端 Game.ts + gameStore，服务端 engine.js），避免铁三角胜利延迟或错乱弹出
+- **前后端资产估值口径统一**：抵押地产按 0.5、养殖/装备/投资按变卖回收比折价，反映实际变卖价值
+
+### AI：修复难度硬编码 bug + 三难度策略差异化
+- 修复 `Game.ts` 硬编码 `new AIPlayer('normal')` 导致难度选择失效的 bug
+- 改为按 aiLevel 缓存三个 AIPlayer 实例，gameStore 按当前玩家 aiLevel 取用
+- easy（新手导游）：保守、随机性强、不主动交易/集齐、建房慢，最容易赢
+- normal（本地商人）：中庸，按性价比决策
+- hard（仙境霸主）：积极集齐色块、补齐建筑、抄底买地皮、积极投资
+- 落对手地产概率按难度分档（easy 85%租房 / normal 70% / hard 50%）
+
+### UI：电脑端棋盘字体放大 1.5~2 倍
+- BoardCell.vue 新增桌面端媒体查询（min-width:768px）：格名 8→13px、图标 14→20px 等
+- 移动端（<768px）保持原值不变；line-clamp + overflow 兜底防溢出
+
+### 胜利弹窗重构（移动端+电脑端，按模式区分）
+- AI 对战：真人赢弹"胜利"、输弹"失败"，按钮"再玩一局"/"退出"
+- 同设备对战：弹"玩家昵称 赢"，列出输家，按钮"再玩一局"/"退出"
+- 联机对战：房主按钮"再来一局"/"解散房间"，非房主"等待房主开下一局"/"退出房间"
+- 联机重开链路打通（restartGame → room:started），解散后全员回首页 + NoticeModal 提示"房主已解散/你已解散该房间"+"我已知晓"
+- 删除死代码 ResultView.vue 及 /result 路由（胜利统一用 VictoryModal）
+
+### 日志：无限记录
+- 移除 Game.addLog 的 300 条上限，游戏期间持续累积不丢失
+- GameLog.vue 流式输出优化（积压>20条时批量刷新，降低延迟）
+
+### 文档
+- HomeView 游戏规则弹窗补全（新胜利条件、扣款说明、机会/命运牌、AI难度、色块地产清单）
+- PRD-v3 / game-design-v3 / README 同步胜负规则与扣钱倍数，修正失效链接
+- operations-guide.md 改为面向部署者的大众教程，去除真实服务器 IP 与私有仓库地址
+
+---
+
 ## v3.1.0 - 联机bug修复 + 移动端重构 + 文档清理（2026-07-13）
 
 ### 联机 bug 根本性修复

@@ -42,10 +42,11 @@ onMounted(() => {
     gameStore.applyOnlineState(data.gameState)
     router.push('/game')
   }))
-  unsub.push(onlineSDK.on('room:disbanded', (data: any) => {
+  unsub.push(onlineSDK.on('room:disbanded', () => {
+    const isHost = onlineStore.isHost
     onlineStore.reset()
     gameStore.setOnlineMode(false)
-    alert('房主已解散房间')
+    gameStore.notifyRoomDisbanded(isHost ? '你已解散该房间' : '房主已解散该房间')
     router.push('/')
   }))
   unsub.push(onlineSDK.on('room:error', (payload: any) => {

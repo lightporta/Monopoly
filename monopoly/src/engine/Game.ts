@@ -2,6 +2,7 @@
 // 四大海洋板块扩展：以"叠加"方式接入装备/养殖/核电/生态，不破坏原玩法逻辑。
 
 import type {
+  AILevel,
   BoardCell,
   Card,
   ColorGroup,
@@ -60,7 +61,8 @@ export class Game {
   private foodCollector: FoodCollector
   private bankruptcyHandler: BankruptcyHandler
   private victoryChecker: VictoryChecker
-  private aiPlayer: AIPlayer
+  // 按难度缓存的 AI 决策器（修复：原先硬编码 normal，导致难度选择失效）
+  private aiPlayers: Map<AILevel, AIPlayer> = new Map()
   // ---- 四大海洋板块子系统 ----
   private equipmentManager: EquipmentManager
   private aquacultureManager: AquacultureManager
@@ -99,7 +101,10 @@ export class Game {
     this.foodCollector = new FoodCollector(cardsFoodData as unknown as FoodData)
     this.bankruptcyHandler = new BankruptcyHandler(this.config, this.propertyManager)
     this.victoryChecker = new VictoryChecker(this.properties, this.config)
-    this.aiPlayer = new AIPlayer('normal', this.propertyManager)
+    // 预创建三种难度的 AI 决策器，按玩家 aiLevel 取用
+    this.aiPlayers.set('easy', new AIPlayer('easy', this.propertyManager))
+    this.aiPlayers.set('normal', new AIPlayer('normal', this.propertyManager))
+    this.aiPlayers.set('hard', new AIPlayer('hard', this.propertyManager))
 
     // ---- 四大海洋板块子系统初始化 ----
     this.equipmentDataList = equipmentData as unknown as EquipmentData[]
@@ -252,10 +257,8 @@ export class Game {
   // ---------- 日志 ----------
 
   addLog(message: string): void {
+    // 游戏进行期间持续累积日志，不裁剪、不丢失历史记录（可滚动查看）
     this.state.log.push(message)
-    if (this.state.log.length > 300) {
-      this.state.log.shift()
-    }
   }
 
   // ---------- 内部辅助 ----------
@@ -677,7 +680,10 @@ export class Game {
     switch (effect.action) {
       case 'cash':
         if (effect.amount !== undefined) {
-          player.cash += effect.amount
+          // 扣款（负数）按惩罚倍数加大；奖励（正数）保持不变
+          const penalty = this.config.economy.penaltyMultiplier ?? 1
+          const amount = effect.amount < 0 ? Math.floor(effect.amount * penalty) : effect.amount
+          player.cash += amount
         }
         break
       case 'move':
@@ -728,8 +734,12 @@ export class Game {
             break
           }
           case 'nuclearAccident': {
-            // 核事故：所有核电投资者付救援费 + 停发分红
-            const results = this.nuclearInvestManager.triggerAccident(this.state.players, 'NUC1')
+            // 核事故：所有核电投资者付救援费 + 停发分红（救援费按惩罚倍数加大）
+            const results = this.nuclearInvestManager.triggerAccident(
+              this.state.players,
+              'NUC1',
+              this.config.economy.penaltyMultiplier ?? 1
+            )
             for (const r of results) {
               if (r.fee > 0) {
                 this.addLog(`☢️ 核事故！${r.player.name} 付 ${r.fee} 救援费，${r.projectName} 停发分红 ${r.stopTurns} 回合`)
@@ -908,6 +918,8 @@ export class Game {
         )
       }
     }
+    // 建房可能满足铁三角胜利条件（各地标建有房屋），需立即检查
+    if (ok) this.checkVictory()
     return ok
   }
 
@@ -1232,7 +1244,16 @@ export class Game {
     return true
   }
 
-  /** 获取玩家总资产（含四大板块估值） */
+  /**
+   * 获取玩家总资产（含四大板块估值）。
+   * 估值口径与服务端 engine.estimatePlayerAssets 完全一致：
+   *   - 地产：已抵押按 price×mortgageRatio(0.5)，未抵押按原价
+   *   - 建筑：buildCost × 等级（全额）
+   *   - 养殖场：累计投入 × 0.5
+   *   - 装备：price × sellRatio(0.5)
+   *   - 投资：cost × 0.5
+   * 折价反映"变卖时无法全额回收"的实际价值。
+   */
   estimatePlayerAssets(player: Player): {
     cash: number
     properties: number
@@ -1242,21 +1263,43 @@ export class Game {
     investments: number
     total: number
   } {
-    const propsValue = player.properties.reduce((sum, id) => {
+    const mortgageRatio = this.config.economy.mortgageRatio
+    const sellRatio = this.config.equipment.sellRatio
+    const aquaDemolishRatio = this.config.aquaculture.demolishRefundRatio
+
+    // 地产（抵押按抵押价）+ 建筑
+    let propsValue = 0
+    let bldValue = 0
+    for (const id of player.properties) {
       const p = this.propertyMap.get(id)
-      return sum + (p?.price ?? 0)
-    }, 0)
-    const bldValue = player.properties.reduce((sum, id) => {
-      const p = this.propertyMap.get(id)
+      if (!p) continue
+      const mortgaged = player.mortgaged.includes(id)
+      propsValue += mortgaged ? Math.floor(p.price * mortgageRatio) : p.price
       const lvl = player.buildings[id] ?? 0
-      return sum + (p?.buildCost ?? 0) * lvl
-    }, 0)
-    const aquaValue = this.aquacultureManager.estimateValue(player)
+      bldValue += p.buildCost * lvl
+    }
+
+    // 养殖场：累计投入 × 拆除回收比
+    let aquaValue = 0
+    for (const id of Object.keys(player.aquaculture)) {
+      const p = this.propertyMap.get(id)
+      const lvl = player.aquaculture[id]?.level ?? 0
+      if (p?.aquaculture && lvl > 0) {
+        let cost = 0
+        for (let i = 0; i < lvl; i++) cost += p.aquaculture.levels[i].cost
+        aquaValue += Math.floor(cost * aquaDemolishRatio)
+      }
+    }
+
+    // 装备：购买价 × 卖回比
     const equipValue = player.equipment.reduce((sum, e) => {
       const d = this.equipmentManager.getData(e.equipId)
-      return sum + (d?.price ?? 0)
+      return sum + (d ? Math.floor(d.price * sellRatio) : 0)
     }, 0)
-    const invValue = this.nuclearInvestManager.estimateValue(player)
+
+    // 投资：投入成本 × 0.5
+    const invValue = Math.floor(this.nuclearInvestManager.estimateValue(player) * 0.5)
+
     const cash = player.cash
     const total = cash + propsValue + bldValue + aquaValue + equipValue + invValue
     return { cash, properties: propsValue, buildings: bldValue, aquaculture: aquaValue, equipment: equipValue, investments: invValue, total }
@@ -1317,36 +1360,42 @@ export class Game {
 
   // ---------- 胜利判定 ----------
 
-  /** 检查胜利条件（铁三角 / 最后存活） */
+  /**
+   * 检查胜利条件。优先级：破产胜利 > 仙境铁三角胜利。
+   * - 破产胜利：仅剩 1 名非破产玩家。
+   * - 铁三角胜利：拥有烟台山+蓬莱阁+养马岛，各地标建有房屋，且总资产 > 30000。
+   */
   private checkVictory(): void {
     if (this.state.phase === 'ended') return
 
-    const player = this.currentPlayer()
-    if (player && this.victoryChecker.checkIronTriangle(player)) {
-      this.state.winner = player
-      this.state.winReason = '集齐铁三角：烟台山 + 蓬莱阁 + 养马岛'
+    // 1. 破产胜利优先
+    const survivor = this.victoryChecker.checkBankruptcy(this.state.players)
+    if (survivor) {
+      this.state.winner = survivor
+      this.state.winReason = '其他玩家全部破产'
       this.state.phase = 'ended'
       const event: GameEvent = {
         type: 'victory',
-        playerId: player.id,
-        cellIndex: player.position,
-        message: `${player.name} 集齐铁三角，获得胜利！`
+        playerId: survivor.id,
+        cellIndex: survivor.position,
+        message: `${survivor.name} 成为最后存活的玩家，获得胜利！`
       }
       this.addLog(event.message)
       this.state.pendingEvent = event
       return
     }
 
-    const winner = this.victoryChecker.checkBankruptcy(this.state.players)
-    if (winner) {
-      this.state.winner = winner
-      this.state.winReason = '其他玩家全部破产'
+    // 2. 铁三角胜利（需房屋 + 资产达标）
+    const player = this.currentPlayer()
+    if (player && this.victoryChecker.checkIronTriangle(player, (p) => this.estimatePlayerAssets(p).total)) {
+      this.state.winner = player
+      this.state.winReason = '仙境铁三角：集齐烟台山 + 蓬莱阁 + 养马岛（均有房屋且资产超过 30000）'
       this.state.phase = 'ended'
       const event: GameEvent = {
         type: 'victory',
-        playerId: winner.id,
-        cellIndex: winner.position,
-        message: `${winner.name} 成为最后存活的玩家，获得胜利！`
+        playerId: player.id,
+        cellIndex: player.position,
+        message: `${player.name} 集齐仙境铁三角，获得胜利！`
       }
       this.addLog(event.message)
       this.state.pendingEvent = event
@@ -1355,8 +1404,11 @@ export class Game {
 
   // ---------- AI 辅助 ----------
 
-  /** 获取 AI 决策器 */
-  getAIPlayer(): AIPlayer {
-    return this.aiPlayer
+  /**
+   * 获取 AI 决策器。
+   * 传入 level 返回对应难度的决策器；不传则回退到 normal（兼容旧调用）。
+   */
+  getAIPlayer(level: AILevel = 'normal'): AIPlayer {
+    return this.aiPlayers.get(level) ?? this.aiPlayers.get('normal')!
   }
 }

@@ -2,16 +2,37 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGameStore } from '@/stores/gameStore'
+import { useOnlineStore } from '@/stores/onlineStore'
+import { onlineSDK } from '@/online/onlineSdk.js'
 import type { Player } from '@/engine/types'
 
 const store = useGameStore()
+const onlineStore = useOnlineStore()
 const router = useRouter()
 
 const visible = computed(() => store.showVictory)
 
 const winner = computed(() => store.state.winner)
-
 const winReason = computed(() => store.state.winReason ?? '胜利')
+const mode = computed(() => store.gameMode)
+const isOnline = computed(() => store.isOnlineMode)
+const isHost = computed(() => onlineStore.isHost)
+
+// 玩家自身（联机模式下用于判断输赢）
+const myPlayer = computed(() => store.state.players[store.myPlayerId] ?? null)
+const iWon = computed(() => {
+  if (!isOnline.value) return false
+  return winner.value?.id === store.myPlayerId
+})
+
+// AI 模式：真人是否赢（winner 为真人且非 AI）
+const humanWonInPve = computed(() => {
+  if (mode.value !== 'pve') return false
+  return winner.value ? !winner.value.isAI : false
+})
+
+// 同设备模式：输家列表（除 winner 外，含破产与未破产）
+const losers = computed(() => store.state.players.filter((p) => p.id !== winner.value?.id))
 
 const confetti = computed(() =>
   Array.from({ length: 36 }, (_, i) => ({
@@ -23,17 +44,9 @@ const confetti = computed(() =>
   }))
 )
 
+// 统一资产口径（含四大板块），避免与历史 ResultView 口径不一致
 function totalAssets(p: Player): number {
-  let assets = p.cash
-  for (const propId of p.properties) {
-    const prop = store.properties.find((pr) => pr.id === propId)
-    if (!prop) continue
-    const mortgaged = p.mortgaged.includes(propId)
-    assets += mortgaged ? Math.floor(prop.price * 0.5) : prop.price
-    const lvl = p.buildings[propId] ?? 0
-    assets += prop.buildCost * lvl
-  }
-  return assets
+  return store.estimateAssets(p.id)?.total ?? 0
 }
 
 const ranking = computed(() => {
@@ -45,7 +58,65 @@ const ranking = computed(() => {
     })
 })
 
-function backHome() {
+// 主标题与副标题
+const mainTitle = computed(() => {
+  if (isOnline.value) return iWon.value ? '🎉 胜利' : '💔 失败'
+  if (mode.value === 'pve') return humanWonInPve.value ? '🎉 胜利' : '💔 失败'
+  // 同设备：展示赢家昵称
+  return `🏆 ${winner.value?.name ?? ''} 赢`
+})
+
+const subTitle = computed(() => {
+  if (isOnline.value) return iWon.value ? '你赢得了本局！' : '本局你输了，再来一次吧'
+  if (mode.value === 'pve') return humanWonInPve.value ? '你击败了 AI 对手！' : 'AI 对手取得了胜利'
+  // 同设备：列出输家
+  const names = losers.value.map((l) => l.name).join('、')
+  return names ? `${names} 输` : ''
+})
+
+const showConfetti = computed(() => {
+  if (isOnline.value) return iWon.value
+  if (mode.value === 'pve') return humanWonInPve.value
+  return true // 同设备模式总展示
+})
+
+// ====== 按钮行为 ======
+// 单机"再玩一局"：用相同配置重开
+function playAgain() {
+  store.playAgain()
+}
+
+// 单机"退出"：回首页
+function exitToHome() {
+  store.confirmExit()
+  router.push('/')
+}
+
+// 联机房主"再来一局"：通知服务端重开
+function onlineRestart() {
+  onlineSDK.restartGame()
+  store.showVictory = false
+}
+
+// 联机房主"解散房间"
+function onlineDisband() {
+  onlineSDK.disbandRoom()
+  // 服务端会广播 room:disbanded，由 GameView 统一处理跳转与提示
+  store.showVictory = false
+}
+
+// 联机非房主"等待房主开下一局"：关闭弹窗留在房间
+function onlineWaitNext() {
+  store.showVictory = false
+}
+
+// 联机非房主"退出房间"
+function onlineLeaveRoom() {
+  onlineSDK.leaveRoom()
+  onlineSDK.disconnect()
+  onlineStore.reset()
+  store.setOnlineMode(false)
+  store.showVictory = false
   router.push('/')
 }
 </script>
@@ -53,7 +124,7 @@ function backHome() {
 <template>
   <Transition name="fade">
     <div v-if="visible && winner" class="overlay">
-      <div class="confetti-layer">
+      <div v-if="showConfetti" class="confetti-layer">
         <span
           v-for="c in confetti"
           :key="c.id"
@@ -68,9 +139,10 @@ function backHome() {
       </div>
 
       <div class="modal">
-        <div class="crown">👑</div>
+        <div class="crown">{{ showConfetti ? '👑' : '🎲' }}</div>
         <div class="winner-token">{{ winner.token }}</div>
-        <h1 class="winner-name">{{ winner.name }}</h1>
+        <h1 class="title">{{ mainTitle }}</h1>
+        <p v-if="subTitle" class="subtitle">{{ subTitle }}</p>
         <p class="reason">{{ winReason }}</p>
 
         <div class="ranking">
@@ -86,7 +158,23 @@ function backHome() {
           </div>
         </div>
 
-        <button class="btn-home" @click="backHome">返回主菜单</button>
+        <!-- 单机模式按钮 -->
+        <div v-if="!isOnline" class="btn-row">
+          <button class="btn-action btn-primary" @click="playAgain">再玩一局</button>
+          <button class="btn-action btn-secondary" @click="exitToHome">退出</button>
+        </div>
+
+        <!-- 联机模式：房主 -->
+        <div v-else-if="isHost" class="btn-row">
+          <button class="btn-action btn-primary" @click="onlineRestart">再来一局</button>
+          <button class="btn-action btn-secondary" @click="onlineDisband">解散房间</button>
+        </div>
+
+        <!-- 联机模式：非房主 -->
+        <div v-else class="btn-row">
+          <button class="btn-action btn-primary" @click="onlineWaitNext">等待房主开下一局</button>
+          <button class="btn-action btn-secondary" @click="onlineLeaveRoom">退出房间</button>
+        </div>
       </div>
     </div>
   </Transition>
@@ -103,6 +191,7 @@ function backHome() {
   z-index: 1200;
   backdrop-filter: blur(4px);
   overflow: hidden;
+  padding: 16px;
 }
 
 .confetti-layer {
@@ -129,6 +218,7 @@ function backHome() {
 .modal {
   position: relative;
   width: 380px;
+  max-width: 100%;
   max-height: 90vh;
   overflow-y: auto;
   background: linear-gradient(160deg, #FFF8E1 0%, #ffffff 60%);
@@ -152,16 +242,24 @@ function backHome() {
   line-height: 1;
 }
 
-.winner-name {
+.title {
   font-size: 28px;
   font-weight: 800;
   color: #F57F17;
   text-shadow: 0 2px 8px rgba(251, 192, 45, 0.4);
+  margin: 0;
+}
+
+.subtitle {
+  margin: 6px 0 0;
+  font-size: 15px;
+  color: #5D4037;
+  font-weight: 600;
 }
 
 .reason {
   margin-top: 4px;
-  font-size: 15px;
+  font-size: 14px;
   color: #8D6E63;
   font-weight: 600;
 }
@@ -206,22 +304,35 @@ function backHome() {
 .rank-name { flex: 1; text-align: left; font-size: 14px; font-weight: 600; color: #5D4037; }
 .rank-assets { font-size: 14px; font-weight: 700; color: #F57F17; }
 
-.btn-home {
-  width: 100%;
+.btn-row {
+  display: flex;
+  gap: 12px;
+}
+
+.btn-action {
+  flex: 1;
   padding: 13px 0;
   border-radius: 9999px;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
-  background: linear-gradient(135deg, #FBC02D 0%, #F57F17 100%);
-  color: #fff;
   border: none;
   cursor: pointer;
   transition: transform 0.2s, box-shadow 0.2s;
 }
 
-.btn-home:hover {
+.btn-primary {
+  background: linear-gradient(135deg, #FBC02D 0%, #F57F17 100%);
+  color: #fff;
+}
+
+.btn-secondary {
+  background: rgba(0, 0, 0, 0.08);
+  color: #5D4037;
+}
+
+.btn-action:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(245, 127, 23, 0.4);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
 }
 
 @keyframes popIn {
@@ -236,4 +347,11 @@ function backHome() {
 
 .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+
+@media (max-width: 480px) {
+  .modal { padding: 22px 16px 18px; }
+  .title { font-size: 22px; }
+  .winner-token { font-size: 52px; }
+  .btn-action { font-size: 14px; padding: 12px 0; }
+}
 </style>

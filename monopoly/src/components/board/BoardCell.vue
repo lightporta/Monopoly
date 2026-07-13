@@ -248,4 +248,42 @@ const isCorner = computed(() =>
   border-radius: 3px;
   pointer-events: none;
 }
+
+/* ============ 桌面端棋盘字体放大（1.5~2倍，适应地标块） ============ */
+/* 移动端（<768px）保持上方原始小字号不变 */
+@media (min-width: 768px) {
+  .cell-icon {
+    font-size: 20px;
+  }
+
+  .cell-name {
+    font-size: 13px;
+  }
+
+  .cell--corner .cell-name {
+    font-size: 15px;
+  }
+
+  .cell-buildings {
+    font-size: 14px;
+  }
+
+  .cell-buildings sub {
+    font-size: 10px;
+  }
+
+  .mortgage-tag {
+    font-size: 13px;
+    padding: 2px 6px;
+  }
+
+  .color-bar {
+    height: 10px;
+  }
+
+  .occupancy-dot {
+    width: 7px;
+    height: 7px;
+  }
+}
 </style>

@@ -82,7 +82,8 @@ export class NuclearInvestManager {
    */
   triggerAccident(
     players: Player[],
-    triggeredProjectId: string
+    triggeredProjectId: string,
+    penaltyMultiplier = 1
   ): { player: Player; fee: number; stopTurns: number; projectName: string }[] {
     const triggered = this.projectMap.get(triggeredProjectId)
     if (!triggered) return []
@@ -99,7 +100,9 @@ export class NuclearInvestManager {
         const data = this.projectMap.get(inv.projectId)
         if (!data) continue
         const isTriggered = inv.projectId === triggeredProjectId
-        const fee = isTriggered ? triggered.accidentFee : 0
+        // 救援费为扣款，按惩罚倍数加大
+        const rawFee = isTriggered ? triggered.accidentFee : 0
+        const fee = rawFee > 0 ? Math.floor(rawFee * penaltyMultiplier) : 0
         if (fee > 0) {
           player.cash -= fee
         }

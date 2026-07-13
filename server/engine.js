@@ -331,10 +331,14 @@ export class GameEngine {
     this.addLog(`${player.name} ${card.text}`);
 
     switch (effect.action) {
-      case 'cash':
-        player.cash += effect.amount;
+      case 'cash': {
+        // 扣款（负数）按惩罚倍数加大；奖励（正数）保持不变
+        const penalty = gameConfig.economy.penaltyMultiplier ?? 1;
+        const amount = effect.amount < 0 ? Math.floor(effect.amount * penalty) : effect.amount;
+        player.cash += amount;
         if (player.cash < 0) this.checkBankruptcy(playerIndex);
         break;
+      }
       case 'move':
         this.movePlayerTo(playerIndex, effect.target);
         break;
@@ -396,7 +400,10 @@ export class GameEngine {
                   if (!accidentIds.has(inv.projectId)) continue;
                   const proj = investmentProjects.find(pp => pp.id === inv.projectId);
                   if (!proj) continue;
-                  const fee = inv.projectId === 'NUC1' ? triggered.accidentFee : 0;
+                  const rawFee = inv.projectId === 'NUC1' ? triggered.accidentFee : 0;
+                  // 救援费为扣款，按惩罚倍数加大
+                  const penalty = gameConfig.economy.penaltyMultiplier ?? 1;
+                  const fee = rawFee > 0 ? Math.floor(rawFee * penalty) : 0;
                   if (fee > 0) p.cash -= fee;
                   inv.stopDividendTurns = Math.max(inv.stopDividendTurns, proj.accidentStopTurns);
                   this.addLog(`☢️ 核事故！${p.name}${fee > 0 ? ` 付 ${fee} 救援费，` : ' 连锁'}${proj.name} 停发分红 ${proj.accidentStopTurns} 回合`);
@@ -474,6 +481,10 @@ export class GameEngine {
     const equipBoost = this.getEquipmentRentBoost(propId, owner);
     if (equipBoost > 1) rent = Math.floor(rent * equipBoost);
 
+    // 扣钱力度：租金统一乘惩罚倍数（盈利项不受影响），保证游戏可终结
+    const penalty = gameConfig.economy.penaltyMultiplier ?? 1;
+    if (penalty > 1) rent = Math.floor(rent * penalty);
+
     return rent;
   }
 
@@ -528,6 +539,8 @@ export class GameEngine {
     player.cash -= prop.buildCost;
     player.buildings[propId] = currentLevel + 1;
     this.addLog(`${player.name} 在 ${prop.name} 建造（等级 ${currentLevel + 1}），花费 ¥${prop.buildCost}`);
+    // 建房可能满足铁三角胜利条件（各地标建有房屋），需立即检查
+    this.checkIronTriangle(playerIndex);
     return { state: this.getState() };
   }
 
@@ -801,23 +814,79 @@ export class GameEngine {
   }
 
   checkIronTriangle(playerIndex) {
+    if (this.state.winner) return;
     const player = this.state.players[playerIndex];
     const ironTriangle = gameConfig.victory.ironTriangle;
-    const hasAll = ironTriangle.every(name => {
-      const prop = Object.values(properties).find(p => p.name === name);
-      return prop && player.properties.includes(prop.id);
-    });
-    if (hasAll && !this.state.winner) {
-      this.state.winner = player;
-      this.state.winReason = '集齐铁三角：烟台山 + 蓬莱阁 + 养马岛！';
-      this.state.phase = 'ended';
-      this.addLog(`🎉 ${player.name} 获得胜利！${this.state.winReason}`);
+    // 解析三地标 propertyId
+    const requiredIds = ironTriangle
+      .map(name => {
+        const prop = Object.values(properties).find(p => p.name === name);
+        return prop ? prop.id : null;
+      })
+      .filter(id => !!id);
+
+    // 条件1：拥有三处地标
+    const ownsAll = requiredIds.length > 0 && requiredIds.every(id => player.properties.includes(id));
+    if (!ownsAll) return;
+
+    // 条件2：各地标均建有房屋（>=1级）
+    if (gameConfig.victory.ironTriangleNeedHouses) {
+      const allBuilt = requiredIds.every(id => (player.buildings[id] || 0) >= 1);
+      if (!allBuilt) return;
     }
+
+    // 条件3：总资产达标
+    const minAssets = gameConfig.victory.ironTriangleMinAssets ?? 0;
+    if (minAssets > 0) {
+      const total = this.estimatePlayerAssets(player);
+      if (total <= minAssets) return;
+    }
+
+    this.state.winner = player;
+    this.state.winReason = '仙境铁三角：集齐烟台山 + 蓬莱阁 + 养马岛（均有房屋且资产超过 30000）';
+    this.state.phase = 'ended';
+    this.addLog(`🎉 ${player.name} 获得胜利！${this.state.winReason}`);
+  }
+
+  /** 估算玩家总资产（含四大板块估值），与前端 estimatePlayerAssets 口径一致 */
+  estimatePlayerAssets(player) {
+    let total = player.cash;
+    for (const propId of player.properties) {
+      const p = properties[propId];
+      if (!p) continue;
+      const mortgaged = player.mortgaged.includes(propId);
+      total += mortgaged ? Math.floor(p.price * gameConfig.economy.mortgageRatio) : p.price;
+      const lvl = player.buildings[propId] || 0;
+      total += p.buildCost * lvl;
+    }
+    // 养殖场估值
+    for (const propId of Object.keys(player.aquaculture || {})) {
+      const p = properties[propId];
+      const lvl = player.aquaculture[propId]?.level || 0;
+      if (p?.aquaculture && lvl > 0) {
+        let cost = 0;
+        for (let i = 0; i < lvl; i++) cost += p.aquaculture.levels[i].cost;
+        total += Math.floor(cost * 0.5);
+      }
+    }
+    // 装备估值
+    for (const eq of player.equipment || []) {
+      const d = equipmentData.find(e => e.id === eq.equipId);
+      if (d) total += Math.floor(d.price * gameConfig.equipment.sellRatio);
+    }
+    // 投资估值
+    for (const inv of player.investments || []) {
+      const proj = investmentProjects.find(p => p.id === inv.projectId);
+      if (proj) total += Math.floor(proj.cost * 0.5);
+    }
+    return total;
   }
 
   checkVictory() {
+    if (this.state.winner) return;
+    // 破产胜利优先于铁三角
     const alive = this.state.players.filter(p => !p.bankrupt);
-    if (alive.length === 1 && !this.state.winner) {
+    if (alive.length === 1) {
       this.state.winner = alive[0];
       this.state.winReason = '其他玩家全部破产';
       this.state.phase = 'ended';

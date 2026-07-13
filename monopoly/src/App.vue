@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import NoticeModal from '@/components/modals/NoticeModal.vue'
 </script>
 
 <template>
@@ -7,6 +8,8 @@
       <component :is="Component" />
     </transition>
   </router-view>
+  <!-- 全局房间解散提示（任意页面可见） -->
+  <NoticeModal />
 </template>
 
 <style>

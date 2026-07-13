@@ -9,10 +9,11 @@ export const gameConfig = {
   start: { cellIndex: 0, passReward: 2000 },
   economy: {
     buildCostRatio: 0.4, mortgageRatio: 0.5, redeemMultiplier: 1.1,
-    sellBuildingRatio: 0.5, auctionStartRatio: 0.5, auctionMinStep: 100
+    sellBuildingRatio: 0.5, auctionStartRatio: 0.5, auctionMinStep: 100,
+    penaltyMultiplier: 2.0
   },
   rentMultipliers: { empty: 1.0, house1: 1.5, house2: 2.0, house3: 2.5, hotel: 3.5 },
-  victory: { ironTriangle: ['烟台山', '蓬莱阁', '养马岛'] },
+  victory: { ironTriangle: ['烟台山', '蓬莱阁', '养马岛'], ironTriangleNeedHouses: true, ironTriangleMinAssets: 30000 },
   ecology: { initial: 50, min: 0, max: 100, naturalRecoveryTurns: 5, naturalRecoveryAmount: 2 },
   equipment: { price: 2000, sellRatio: 0.5, rentBoostMultiplier: 1.3 },
   aquaculture: { demolishRefundRatio: 0.5, debuffTurnsOnRedTide: 3, debuffFactor: 0.5 },

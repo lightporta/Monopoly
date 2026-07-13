@@ -72,6 +72,12 @@ export class RentCalculator {
       }
     }
 
+    // 【扣钱力度】租金统一乘惩罚倍数（盈利项不受影响），保证游戏可终结
+    const penalty = this.config.economy.penaltyMultiplier ?? 1
+    if (penalty > 1) {
+      rent = Math.floor(rent * penalty)
+    }
+
     return rent
   }
 

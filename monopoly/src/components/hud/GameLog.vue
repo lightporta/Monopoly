@@ -65,9 +65,14 @@ function parseLog(log: string): LogEntry {
 function streamNext() {
   if (pendingQueue.length === 0) return
 
-  const log = pendingQueue.shift()!
-  const entry = parseLog(log)
-  visibleLogs.value.push(entry)
+  // 积压较多时批量出队，避免逐条 120ms 造成长时间滞后
+  const batchSize = pendingQueue.length > 20 ? Math.min(10, pendingQueue.length) : 1
+  for (let i = 0; i < batchSize; i++) {
+    const log = pendingQueue.shift()
+    if (log === undefined) break
+    const entry = parseLog(log)
+    visibleLogs.value.push(entry)
+  }
 
   nextTick(() => {
     if (logContainer.value) {
@@ -76,7 +81,9 @@ function streamNext() {
   })
 
   if (pendingQueue.length > 0) {
-    streamTimer = window.setTimeout(streamNext, 120)
+    // 积压越多间隔越短
+    const delay = pendingQueue.length > 20 ? 30 : 120
+    streamTimer = window.setTimeout(streamNext, delay)
   } else {
     streamTimer = null
   }
