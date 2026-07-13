@@ -248,6 +248,20 @@ npm run build
 - **样式**：CSS3 + CSS Variables
 - **输出**：单文件 HTML（vite-plugin-singlefile）
 
+---
+
+## 📚 文档索引
+
+| 文档 | 说明 |
+|---|---|
+| [📋 PRD V3](./docs/design/PRD-v3.md) | 产品需求文档（含四板块功能/流程/规则） |
+| [🏗️ 技术架构 V3](./docs/design/TechnicalArchitecture-v3.md) | 技术架构文档（引擎设计/数据结构/部署） |
+| [🎮 游戏设计 V3](./docs/design/game-design-v3.md) | 完整游戏规则（四板块/胜利条件/兼容性） |
+| [🚀 部署指南](./docs/deployment-guide.md) | 云端部署（含学生优惠/PM2/Nginx/HTTPS） |
+| [📝 更新日志](./CHANGELOG.md) | 版本变更记录 |
+
+> V1 版文档见 `.trae/documents/`（PRD.md / TechnicalArchitecture.md），V3 版在 `docs/design/` 下。
+
 ### 服务端
 - **运行时**：Node.js ≥ 18
 - **WebSocket**：ws 库
