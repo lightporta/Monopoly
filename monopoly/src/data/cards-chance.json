@@ -14,5 +14,11 @@
   { "id": "C13", "type": "chance", "text": "帮助迷路游客找到酒店，获感谢费", "effect": { "action": "cash", "amount": 300 }, "icon": "🤝" },
   { "id": "C14", "type": "chance", "text": "烟台晚报报道你的旅行故事，获稿费", "effect": { "action": "cash", "amount": 400 }, "icon": "📰" },
   { "id": "C15", "type": "chance", "text": "八仙过海节担任嘉宾，获出场费", "effect": { "action": "cash", "amount": 1600 }, "icon": "🎭" },
-  { "id": "C16", "type": "chance", "text": "抽中仙境幸运星，银行额外奖励", "effect": { "action": "cash", "amount": 2500 }, "icon": "⭐" }
+  { "id": "C16", "type": "chance", "text": "抽中仙境幸运星，银行额外奖励", "effect": { "action": "cash", "amount": 2500 }, "icon": "⭐" },
+  { "id": "C_E1", "type": "chance", "category": "ecology", "text": "参与海岸清洁志愿行动，获环保奖励", "effect": { "action": "cash", "amount": 500 }, "ecology": { "delta": 5 }, "icon": "🌱" },
+  { "id": "C_E2", "type": "chance", "category": "ecology", "text": "鲸鱼群回归烟台海域，观光收入大增", "effect": { "action": "cash", "amount": 1200 }, "ecology": { "delta": 5 }, "icon": "🐋" },
+  { "id": "C_E3", "type": "chance", "category": "ecology", "text": "海草床修复成功，渔业丰收", "effect": { "action": "cash", "amount": 800 }, "ecology": { "delta": 5 }, "icon": "🌿" },
+  { "id": "C_E4", "type": "chance", "category": "ecology", "text": "投放人工鱼礁，海洋生物回归", "effect": { "action": "cash", "amount": 600 }, "ecology": { "delta": 5 }, "icon": "🐠" },
+  { "id": "C_E5", "type": "chance", "category": "ecology", "text": "海洋保护区扩区，获得政府补贴", "effect": { "action": "cash", "amount": 1000 }, "ecology": { "delta": 5 }, "icon": "🛡️" },
+  { "id": "C_E6", "type": "chance", "category": "ecology", "text": "检测到稀有海豚种群，科研奖励", "effect": { "action": "cash", "amount": 1500 }, "ecology": { "delta": 5 }, "icon": "🐬" }
 ]

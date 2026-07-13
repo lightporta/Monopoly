@@ -1,0 +1,41 @@
+{
+  "projects": [
+    {
+      "id": "NUC1",
+      "name": "海阳核电1号机组",
+      "icon": "🔬",
+      "description": "高回报高风险。投入 5000，每回合分红 +800。抽到核事故卡时付 3000 救援费，3 回合无分红。",
+      "cost": 5000,
+      "dividendPerTurn": 800,
+      "maxCopies": 1,
+      "accidentStopTurns": 3,
+      "accidentFee": 3000,
+      "chainEffect": ["NUC2"]
+    },
+    {
+      "id": "NUC2",
+      "name": "海阳核电2号机组",
+      "icon": "🔬",
+      "description": "高回报高风险。投入 5000，每回合分红 +800。1号机组事故时连锁停发分红（不另收救援费）。",
+      "cost": 5000,
+      "dividendPerTurn": 800,
+      "maxCopies": 1,
+      "accidentStopTurns": 3,
+      "accidentFee": 0,
+      "chainEffect": []
+    },
+    {
+      "id": "WIND1",
+      "name": "海上风电场",
+      "icon": "🌀",
+      "description": "低回报零风险。投入 3000，每回合分红 +400。全局共 2 份，先到先得。",
+      "cost": 3000,
+      "dividendPerTurn": 400,
+      "maxCopies": 2,
+      "accidentStopTurns": 0,
+      "accidentFee": 0,
+      "chainEffect": [],
+      "riskEventId": null
+    }
+  ]
+}

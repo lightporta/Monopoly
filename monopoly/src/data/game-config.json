@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "2.0.0",
   "theme": "仙境海岸·烟台",
   "player": {
     "minCount": 2,
@@ -32,5 +32,26 @@
   },
   "victory": {
     "ironTriangle": ["烟台山", "蓬莱阁", "养马岛"]
+  },
+  "ecology": {
+    "initial": 50,
+    "min": 0,
+    "max": 100,
+    "naturalRecoveryTurns": 5,
+    "naturalRecoveryAmount": 2
+  },
+  "equipment": {
+    "price": 2000,
+    "sellRatio": 0.5,
+    "rentBoostMultiplier": 1.3
+  },
+  "aquaculture": {
+    "demolishRefundRatio": 0.5,
+    "debuffTurnsOnRedTide": 3,
+    "debuffFactor": 0.5
+  },
+  "nuclear": {
+    "reRollTicketsMax": 3,
+    "reRollTicketOnColorGroupComplete": 1
   }
 }

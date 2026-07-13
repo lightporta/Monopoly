@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useGameStore } from '@/stores/gameStore'
 import BoardCell from './BoardCell.vue'
+import TokenLayer from './TokenLayer.vue'
 
 const store = useGameStore()
 
@@ -39,6 +40,8 @@ const positioned = computed(() =>
         <p class="center-subtitle">大富翁</p>
         <div class="center-waves">🌊 🌊 🌊</div>
       </div>
+      <!-- 棋子悬浮图层（定位到格子外侧） -->
+      <TokenLayer />
     </div>
   </div>
 </template>
@@ -52,6 +55,7 @@ const positioned = computed(() =>
 }
 
 .board {
+  position: relative;
   width: 100%;
   max-width: 640px;
   aspect-ratio: 1 / 1;

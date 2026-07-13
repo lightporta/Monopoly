@@ -3,12 +3,14 @@ import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGameStore } from '@/stores/gameStore'
 import type { GameMode, AILevel, PlayerConfig } from '@/engine/types'
+import tokensData from '@/data/tokens.json'
 
 const router = useRouter()
 const store = useGameStore()
 
-const tokens = ['🗼', '🐳', '🍷', '🐦']
-const colors = ['#FF6B6B', '#4ECDC4', '#FFE66D', '#95E1D3']
+// 棋子从 tokens.json 读取（6 种：灯塔/鲸鱼/葡萄酒桶/海鸥/蓬莱阁/帆船）
+const tokens = (tokensData as { icon: string }[]).map((t) => t.icon)
+const colors = ['#FF6B6B', '#4ECDC4', '#FFE66D', '#95E1D3', '#C9B1FF', '#FFA07A']
 const aiNames = ['新手导游', '本地商人', '仙境霸主']
 const aiLevelLabels: Record<AILevel, string> = { easy: '简单', normal: '普通', hard: '困难' }
 

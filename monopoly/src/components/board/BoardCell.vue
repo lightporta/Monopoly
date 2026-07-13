@@ -78,14 +78,13 @@ const isCorner = computed(() =>
         <span v-else>🏠<sub v-if="building.houses > 1">×{{ building.houses }}</sub></span>
       </div>
     </div>
-    <div v-if="playersHere.length" class="cell-tokens">
+    <div v-if="playersHere.length" class="cell-occupancy-dot" :title="`${playersHere.length} 名玩家`">
       <span
-        v-for="p in playersHere"
+        v-for="(p, i) in playersHere.slice(0, 4)"
         :key="p.id"
-        class="token"
-        :style="{ color: p.color }"
-        :title="p.name"
-      >{{ p.token }}</span>
+        class="occupancy-dot"
+        :style="{ background: p.color, zIndex: 10 - i }"
+      />
     </div>
     <div v-if="isMortgaged" class="mortgage-tag">抵押</div>
   </div>
@@ -215,21 +214,21 @@ const isCorner = computed(() =>
   vertical-align: baseline;
 }
 
-.cell-tokens {
+.cell-occupancy-dot {
   position: absolute;
-  bottom: 1px;
-  left: 0;
-  right: 0;
+  top: 2px;
+  right: 2px;
   display: flex;
-  justify-content: center;
   gap: 1px;
-  font-size: 11px;
-  line-height: 1;
-  text-shadow: 0 0 2px rgba(255, 255, 255, 0.9);
+  pointer-events: none;
 }
 
-.token {
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+.occupancy-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 .cell--mortgaged {

@@ -1,0 +1,13 @@
+{
+  "initial": 50,
+  "min": 0,
+  "max": 100,
+  "naturalRecoveryTurns": 5,
+  "naturalRecoveryAmount": 2,
+  "tiers": [
+    { "range": [80, 100], "status": "good", "label": "生态优良", "color": "#43A047", "subsidyPerTurn": 200, "aquaculturePenalty": 0, "nuclearDividendPenalty": 1.0 },
+    { "range": [50, 79], "status": "normal", "label": "生态正常", "color": "#FBC02D", "subsidyPerTurn": 0, "aquaculturePenalty": 0, "nuclearDividendPenalty": 1.0 },
+    { "range": [20, 49], "status": "warning", "label": "生态预警", "color": "#FB8C00", "subsidyPerTurn": 0, "aquaculturePenalty": 0.3, "nuclearDividendPenalty": 1.0 },
+    { "range": [0, 19], "status": "crisis", "label": "生态危机", "color": "#E53935", "subsidyPerTurn": 0, "aquaculturePenalty": 0.6, "nuclearDividendPenalty": 0.5 }
+  ]
+}

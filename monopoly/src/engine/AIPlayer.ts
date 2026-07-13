@@ -133,4 +133,82 @@ export class AIPlayer {
     affordable.sort((a, b) => b.baseRent / b.price - a.baseRent / a.price)
     return affordable[0].id
   }
+
+  // ---------- 四大海洋板块 AI 决策 ----------
+
+  getLevel(): AILevel {
+    return this.aiLevel
+  }
+
+  /**
+   * 决定是否购买装备：拥有供应点地标、资金充足（≥ 装备价 × 1.5）、且拥有匹配色块地产时倾向购买。
+   * 返回 { equipId, boundPropertyId } 或 null。
+   */
+  decideBuyEquipment(
+    player: Player,
+    availableEquipment: { equipId: string; soldAtPropertyId: string; price: number; effectColorGroup?: string }[]
+  ): { equipId: string; soldAtPropertyId: string; boundPropertyId: string | null } | null {
+    const ratio = this.aiLevel === 'easy' ? 1.3 : 1.5
+    for (const eq of availableEquipment) {
+      if (player.cash < eq.price * ratio) continue
+      if (!player.properties.includes(eq.soldAtPropertyId)) continue
+      if (!eq.effectColorGroup) {
+        // 监测船 / 风电塔：全局生效，直接买
+        return { equipId: eq.equipId, soldAtPropertyId: eq.soldAtPropertyId, boundPropertyId: null }
+      }
+      // rentBoost 类：找一块自己拥有的同色块地产装配
+      const target = player.properties.find((id) => {
+        const prop = this.propertyManager.getPropertyData(id)
+        return prop?.colorGroup === eq.effectColorGroup
+      })
+      if (target) {
+        return { equipId: eq.equipId, soldAtPropertyId: eq.soldAtPropertyId, boundPropertyId: target }
+      }
+    }
+    return null
+  }
+
+  /**
+   * 决定是否建造养殖场：拥有养殖地产、未建房屋、资金充足（≥ 1500 × 1.5）时倾向建造/升级。
+   * 返回 propertyId 或 null。
+   */
+  decideBuildAquaculture(
+    player: Player,
+    aquaProperties: { propertyId: string; cost: number }[]
+  ): string | null {
+    const ratio = this.aiLevel === 'easy' ? 1.3 : 1.5
+    for (const aq of aquaProperties) {
+      if (player.cash < aq.cost * ratio) continue
+      if (!player.properties.includes(aq.propertyId)) continue
+      // 已有建筑则不可建养殖
+      if ((player.buildings[aq.propertyId] ?? 0) > 0) continue
+      // 已达最高级跳过
+      const cur = player.aquaculture[aq.propertyId]?.level ?? 0
+      if (cur >= 3) continue
+      return aq.propertyId
+    }
+    return null
+  }
+
+  /**
+   * 决定是否投资核电/风电：资金充裕（≥ 5000）时倾向投资。
+   * 优先风电（零风险），其次核电。
+   * 返回 projectId 或 null。
+   */
+  decideInvest(
+    player: Player,
+    availableProjects: { projectId: string; cost: number; riskLevel: 'low' | 'high' }[]
+  ): string | null {
+    if (player.cash < 5000) return null
+    const ratio = this.aiLevel === 'easy' ? 1.5 : 1.3
+    // 风电优先（低风险）
+    const wind = availableProjects.find((p) => p.riskLevel === 'low' && player.cash >= p.cost * ratio)
+    if (wind) return wind.projectId
+    // 资金很充裕时才考虑核电（高风险）
+    if (player.cash >= 8000) {
+      const nuclear = availableProjects.find((p) => p.riskLevel === 'high' && player.cash >= p.cost * ratio)
+      if (nuclear) return nuclear.projectId
+    }
+    return null
+  }
 }

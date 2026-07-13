@@ -17,6 +17,10 @@ import TurnHandoffModal from '@/components/modals/TurnHandoffModal.vue'
 import ExitConfirmModal from '@/components/modals/ExitConfirmModal.vue'
 import VictoryModal from '@/components/modals/VictoryModal.vue'
 import LandedOnOpponentModal from '@/components/modals/LandedOnOpponentModal.vue'
+import EquipmentModal from '@/components/modals/EquipmentModal.vue'
+import AquacultureModal from '@/components/modals/AquacultureModal.vue'
+import InvestModal from '@/components/modals/InvestModal.vue'
+import EcologyDetailModal from '@/components/modals/EcologyDetailModal.vue'
 
 const router = useRouter()
 const store = useGameStore()
@@ -25,6 +29,7 @@ const showBuild = ref(false)
 const showFoodRedeem = ref(false)
 const showSideDrawer = ref(false)
 const isMobile = ref(false)
+const showInvest = ref(false)
 
 const showBuyProperty = computed(() => store.pendingModal?.type === 'buyProperty')
 const showCard = computed(() => {
@@ -96,8 +101,17 @@ onUnmounted(() => {
 
     <div class="bottom-bar">
       <DiceWidget />
-      <ActionButtons @manage-assets="showBuild = true" @redeem-food="showFoodRedeem = true" />
+      <ActionButtons
+        @manage-assets="showBuild = true"
+        @redeem-food="showFoodRedeem = true"
+        @open-invest="showInvest = true"
+      />
     </div>
+
+    <!-- 四大海洋板块：投资核电按钮（左下方固定） -->
+    <button class="invest-fab" @click="showInvest = true" aria-label="投资核电">
+      💼 投资核电
+    </button>
 
     <!-- 弹窗层 -->
     <CardModal v-if="showCard" />
@@ -109,6 +123,11 @@ onUnmounted(() => {
     <TurnHandoffModal v-if="store.showTurnHandoff" />
     <ExitConfirmModal v-if="store.showExitConfirm" />
     <VictoryModal v-if="store.showVictory" @close="onVictoryClose" />
+    <!-- 四大海洋板块弹窗 -->
+    <EquipmentModal v-model:show="store.showEquipmentModal" />
+    <AquacultureModal v-model:show="store.showAquacultureModal" />
+    <InvestModal v-model:show="showInvest" />
+    <EcologyDetailModal v-model:show="store.showEcologyDetail" />
   </div>
 </template>
 
@@ -223,6 +242,29 @@ onUnmounted(() => {
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* 四大海洋板块：投资核电按钮（左下方固定） */
+.invest-fab {
+  position: fixed;
+  left: 16px;
+  bottom: calc(112px + env(safe-area-inset-bottom));
+  z-index: 90;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #6A1B9A, #4a148c);
+  border: none;
+  border-radius: var(--radius-pill);
+  box-shadow: 0 4px 14px rgba(106, 27, 154, 0.45);
+  cursor: pointer;
+  transition: var(--transition-base);
+}
+
+.invest-fab:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(106, 27, 154, 0.6);
 }
 
 @media (max-width: 900px) {

@@ -62,6 +62,7 @@ export class BankruptcyHandler {
 
   /**
    * 执行破产：将玩家标记为破产，释放其所有地产（理论上由 Game 层处理释放后归属）。
+   * 四大板块扩展：装备卖回银行（由 Game 层处理退额）、投资归零、养殖场清除、重掷券清零。
    * 这里仅设置 bankrupt 标志并清空其资产，地产释放由 Game 决定（如转为无主或交给债权人）。
    */
   declareBankrupt(player: Player): void {
@@ -71,5 +72,10 @@ export class BankruptcyHandler {
     player.mortgaged = []
     player.foodCards = []
     player.freeRentTickets = 0
+    // ---- 四大海洋板块清算（资产清空，退额由 Game 层在调用前处理）----
+    player.equipment = []
+    player.aquaculture = {}
+    player.investments = []
+    player.reRollTickets = 0
   }
 }

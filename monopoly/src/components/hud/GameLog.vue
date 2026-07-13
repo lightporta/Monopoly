@@ -102,11 +102,37 @@ onMounted(() => {
   lastProcessedLen = 0
   checkForNewLogs()
 })
+
+/** 导出日志为 txt 文件 */
+function exportLogs() {
+  const lines = store.state.log.map((l, i) => `[${i + 1}] ${l}`)
+  const content = `仙境海岸·大富翁 游戏日志\n导出时间：${new Date().toLocaleString()}\n${'='.repeat(40)}\n\n${lines.join('\n')}`
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `game-log-${Date.now()}.txt`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+/** 检测日志是否为四大板块事件（用于着色） */
+function oceanCategory(text: string): string {
+  if (/🛢️|🤖|🛳️|⚡.*发电|🔧.*拆卸/.test(text)) return 'equipment'
+  if (/🐚|养殖场/.test(text)) return 'aquaculture'
+  if (/💼|☢️|核电|风电场/.test(text)) return 'nuclear'
+  if (/🌿|生态/.test(text)) return 'ecology'
+  if (/🎫|重掷/.test(text)) return 'reroll'
+  return ''
+}
 </script>
 
 <template>
   <aside class="game-log">
-    <h2 class="log-title">📜 游戏日志</h2>
+    <div class="log-header">
+      <h2 class="log-title">📜 游戏日志</h2>
+      <button class="export-btn" @click="exportLogs" title="导出日志" aria-label="导出日志">⬇️</button>
+    </div>
     <div ref="logContainer" class="log-container">
       <div v-if="visibleLogs.length === 0" class="log-empty">
         游戏尚未开始...
@@ -115,7 +141,14 @@ onMounted(() => {
         v-for="entry in visibleLogs"
         :key="entry.id"
         class="log-bubble"
-        :class="{ 'log-bubble--system': entry.playerId === null }"
+        :class="{
+          'log-bubble--system': entry.playerId === null,
+          'log-bubble--equipment': oceanCategory(entry.text) === 'equipment',
+          'log-bubble--aquaculture': oceanCategory(entry.text) === 'aquaculture',
+          'log-bubble--nuclear': oceanCategory(entry.text) === 'nuclear',
+          'log-bubble--ecology': oceanCategory(entry.text) === 'ecology',
+          'log-bubble--reroll': oceanCategory(entry.text) === 'reroll',
+        }"
       >
         <div class="bubble-avatar" :style="{ background: entry.playerColor }">
           {{ entry.playerToken }}
@@ -149,17 +182,47 @@ onMounted(() => {
   margin-top: 10px;
 }
 
+.log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(0, 0, 0, 0.3);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
 .log-title {
   font-size: 14px;
   font-weight: 700;
   color: #FFE66D;
   text-align: center;
   padding: 10px 12px;
-  background: rgba(0, 0, 0, 0.3);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   letter-spacing: 1px;
   margin: 0;
+  flex: 1;
 }
+
+.export-btn {
+  width: 32px;
+  height: 32px;
+  margin-right: 8px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.export-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* 四大海洋板块日志着色 */
+.log-bubble--equipment .bubble-text { color: #80CBC4; }
+.log-bubble--aquaculture .bubble-text { color: #A5D6A7; }
+.log-bubble--nuclear .bubble-text { color: #CE93D8; }
+.log-bubble--ecology .bubble-text { color: #C5E1A5; }
+.log-bubble--reroll .bubble-text { color: #FFE082; }
 
 .log-container {
   flex: 1;

@@ -5,6 +5,7 @@ import { useGameStore } from '@/stores/gameStore'
 const emit = defineEmits<{
   (e: 'manage-assets'): void
   (e: 'redeem-food'): void
+  (e: 'open-invest'): void
 }>()
 
 const store = useGameStore()
@@ -25,6 +26,14 @@ const canRedeemFood = computed(() => {
         @click="store.rollDice()"
       >
         🎲 掷骰子
+      </button>
+      <button
+        v-if="store.reRollTickets > 0"
+        class="btn-reroll"
+        :disabled="!store.canUseReRollTicket"
+        @click="store.useReRollTicket()"
+      >
+        🎫 重掷({{ store.reRollTickets }})
       </button>
       <button
         class="btn-skip"
@@ -119,6 +128,17 @@ button {
   background: #e3f2fd;
   transform: translateY(-2px);
   box-shadow: 0 4px 10px rgba(30, 136, 229, 0.25);
+}
+
+.btn-reroll {
+  background: linear-gradient(135deg, #FBC02D, #F57F17);
+  color: #fff;
+  box-shadow: 0 4px 10px rgba(251, 192, 45, 0.4);
+}
+
+.btn-reroll:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 14px rgba(251, 192, 45, 0.55);
 }
 
 button:disabled {

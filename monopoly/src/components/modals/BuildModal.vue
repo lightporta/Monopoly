@@ -120,6 +120,44 @@ function colorOf(prop: Property): string {
   return store.getColorGroup(prop.colorGroup)?.color ?? '#1E88E5'
 }
 
+// ---- 四大海洋板块：装备/养殖辅助 ----
+
+/** 该地产是否为装备供应点，返回对应装备数据 */
+function getEquipmentForProp(propId: string) {
+  const cell = store.board.find((c) => c.propertyRef === propId)
+  if (!cell) return null
+  return store.equipmentList.find((e) => e.soldAtCell === cell.index) ?? null
+}
+
+/** 该地产对应的装备是否已售出 */
+function isEquipSold(propId: string): boolean {
+  const eq = getEquipmentForProp(propId)
+  return eq ? store.isEquipmentSold(eq.id) : false
+}
+
+/** 打开装备购买弹窗 */
+function openEquipment(propId: string) {
+  store.activeEquipmentPropertyId = propId
+  store.showEquipmentModal = true
+}
+
+/** 该地产是否支持养殖 */
+function isAquacultureProp(propId: string): boolean {
+  return store.isAquacultureProperty(propId)
+}
+
+/** 该地产的养殖等级 */
+function getAquacultureLevel(propId: string): number {
+  const p = player.value
+  return p ? store.getAquacultureLevel(propId, p.id) : 0
+}
+
+/** 打开养殖场弹窗 */
+function openAquaculture(propId: string) {
+  store.activeAquaculturePropertyId = propId
+  store.showAquacultureModal = true
+}
+
 function prevOtherPlayer() {
   const players = otherPlayers.value
   if (players.length <= 1) return
@@ -341,7 +379,7 @@ function close() {
                 <div class="prop-actions">
                   <button
                     class="btn btn-build"
-                    :disabled="!canBuild(prop)"
+                    :disabled="!canBuild(prop) || getAquacultureLevel(prop.id) > 0"
                     @click="store.buildHouse(prop.id)"
                   >建房 (¥{{ prop.buildCost }})</button>
                   <button
@@ -362,6 +400,25 @@ function close() {
                     :disabled="!canRedeem(prop)"
                     @click="store.redeem(prop.id)"
                   >赎回 (¥{{ redeemCost(prop) }})</button>
+                  <!-- 四大海洋板块：装备购买按钮（4 处装备供应点地产） -->
+                  <button
+                    v-if="getEquipmentForProp(prop.id)"
+                    class="btn btn-equip"
+                    :disabled="isEquipSold(prop.id)"
+                    @click="openEquipment(prop.id)"
+                  >{{ getEquipmentForProp(prop.id)?.icon }} {{ isEquipSold(prop.id) ? '已售' : '买装备' }}</button>
+                  <!-- 四大海洋板块：养殖场按钮（4 处养殖地产） -->
+                  <button
+                    v-if="isAquacultureProp(prop.id) && getAquacultureLevel(prop.id) === 0"
+                    class="btn btn-aqua"
+                    :disabled="buildingLevel(prop.id) > 0"
+                    @click="openAquaculture(prop.id)"
+                  >🐚 建养殖场</button>
+                  <button
+                    v-else-if="isAquacultureProp(prop.id) && getAquacultureLevel(prop.id) > 0"
+                    class="btn btn-aqua"
+                    @click="openAquaculture(prop.id)"
+                  >🐚 养殖L{{ getAquacultureLevel(prop.id) }} 管理</button>
                 </div>
               </div>
             </div>
@@ -560,6 +617,8 @@ function close() {
 .btn-build { background: #1E88E5; color: #fff; }
 .btn-sell { background: #fff; color: #FF8F00; border: 1.5px solid #FF8F00; }
 .btn-mortgage { background: #fff; color: #E53935; border: 1.5px solid #E53935; }
+.btn-equip { background: linear-gradient(135deg, #00897B, #00695C); color: #fff; }
+.btn-aqua { background: linear-gradient(135deg, #27AE60, #1e8e3e); color: #fff; }
 .btn-redeem { background: #43A047; color: #fff; }
 
 .trade-buttons {

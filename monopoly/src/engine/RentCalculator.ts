@@ -1,24 +1,35 @@
 // 租金计算模块：根据地产等级、颜色组加成、抵押状态计算应付租金
+// 四大板块扩展：在原公式末尾乘「装备系数」（同色块多件装备取最高，不累乘）。
+// 核心铁律：不修改原色块/建筑系数逻辑，装备仅以乘法叠加。
 
 import type { ColorGroup, GameConfig, Player, Property } from './types'
 import { PropertyManager } from './Property'
+import type { EquipmentManager } from './Equipment'
 
 export class RentCalculator {
   private propertyMap: Map<string, Property>
   private colorGroupMap: Map<string, ColorGroup>
   private config: GameConfig
   private propertyManager: PropertyManager
+  private equipmentManager: EquipmentManager | null
 
   constructor(
     properties: Property[],
     colorGroups: ColorGroup[],
     config: GameConfig,
-    propertyManager: PropertyManager
+    propertyManager: PropertyManager,
+    equipmentManager: EquipmentManager | null = null
   ) {
     this.propertyMap = new Map(properties.map((p) => [p.id, p]))
     this.colorGroupMap = new Map(colorGroups.map((g) => [g.id, g]))
     this.config = config
     this.propertyManager = propertyManager
+    this.equipmentManager = equipmentManager
+  }
+
+  /** 注入装备管理器（Game 构造完成后回填，避免循环依赖） */
+  setEquipmentManager(em: EquipmentManager): void {
+    this.equipmentManager = em
   }
 
   /**
@@ -26,9 +37,9 @@ export class RentCalculator {
    * 规则：
    * 1. 若该地产已被抵押，租金 = 0。
    * 2. 否则取 rentByLevel[level] 作为基础租金（已含建筑倍率）。
-   * 3. 若 ownerPlayer 在该颜色组满足 bonusRule（拥有足够数量），
-   *    则额外乘以 rentMultiplier（仅对空地等级生效，避免与建筑倍率叠加膨胀）。
-   * 4. 若访客拥有免租券（freeRentTickets > 0），租金 = 0（由调用方消耗券）。
+   * 3. 若 ownerPlayer 在该颜色组满足 bonusRule，则额外乘以 rentMultiplier（仅对空地生效）。
+   * 4. 若访客拥有免租券，租金 = 0（由调用方消耗券）。
+   * 5.【四大板块】若 owner 在该地产装配了 rentBoost 装备，末尾乘装备系数。
    *
    * 返回 0 表示无需支付（抵押 / 访客免租券等情况）。
    */
@@ -51,7 +62,17 @@ export class RentCalculator {
       multiplier = this.getColorGroupBonus(data.colorGroup, ownerPlayer)
     }
 
-    return Math.floor(baseRent * multiplier)
+    let rent = Math.floor(baseRent * multiplier)
+
+    // 【四大板块】装备加成：同色块多件取最高，不累乘
+    if (this.equipmentManager) {
+      const equipMult = this.equipmentManager.getRentBoostMultiplier(propertyId, ownerPlayer)
+      if (equipMult > 1) {
+        rent = Math.floor(rent * equipMult)
+      }
+    }
+
+    return rent
   }
 
   /** 根据建筑等级取 rentByLevel 中对应的值 */
@@ -74,7 +95,7 @@ export class RentCalculator {
 
   /**
    * 颜色组加成倍率：
-   * - type 'all': 需拥有该组全部 propertyIds 才生效（requiredCount 应等于组内数量）
+   * - type 'all': 需拥有该组全部 propertyIds 才生效
    * - type 'count': 拥有数量 >= requiredCount 即生效
    * 满足条件返回 rentMultiplier，否则返回 1。
    */
@@ -85,13 +106,11 @@ export class RentCalculator {
     const ownedCount = group.propertyIds.filter((id) => owner.properties.includes(id)).length
 
     if (group.bonusRule.type === 'all') {
-      // 必须拥有该组所有地产
       if (ownedCount === group.propertyIds.length) {
         return group.bonusRule.rentMultiplier
       }
       return 1
     } else {
-      // count 类型：达到 requiredCount 即可
       if (ownedCount >= group.bonusRule.requiredCount) {
         return group.bonusRule.rentMultiplier
       }

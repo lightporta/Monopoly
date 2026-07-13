@@ -14,5 +14,11 @@
   { "id": "D13", "type": "destiny", "text": "东炮台修复工程，获政府补贴", "effect": { "action": "cash", "amount": 800 }, "icon": "🏛️" },
   { "id": "D14", "type": "destiny", "text": "黄海明珠观光塔冠名权拍卖，分红", "effect": { "action": "cash", "amount": 1000 }, "icon": "🗼" },
   { "id": "D15", "type": "destiny", "text": "芝罘湾游艇码头扩建，征收补偿", "effect": { "action": "cash", "amount": 1800 }, "icon": "🛥️" },
-  { "id": "D16", "type": "destiny", "text": "龙湖地产项目合作，投资收益", "effect": { "action": "cash", "amount": 2200 }, "icon": "📈" }
+  { "id": "D16", "type": "destiny", "text": "龙湖地产项目合作，投资收益", "effect": { "action": "cash", "amount": 2200 }, "icon": "📈" },
+  { "id": "D_E1", "type": "destiny", "category": "ecology", "text": "赤潮爆发，养殖场受损（持有海洋监测船可免疫）", "effect": { "action": "cash", "amount": -1500 }, "ecology": { "delta": -5 }, "extraEffect": { "type": "aquacultureDebuff", "turns": 3, "factor": 0.5 }, "icon": "🟥" },
+  { "id": "D_E2", "type": "destiny", "category": "ecology", "text": "海洋塑料污染，清理费用", "effect": { "action": "cash", "amount": -600 }, "ecology": { "delta": -5 }, "icon": "🥤" },
+  { "id": "D_E3", "type": "destiny", "category": "ecology", "text": "台风破坏海岸设施（持有海洋监测船可免疫）", "effect": { "action": "cash", "amount": -1000 }, "ecology": { "delta": -5 }, "extraEffect": { "type": "aquacultureDowngrade", "count": 1 }, "icon": "🌀" },
+  { "id": "D_E4", "type": "destiny", "category": "ecology", "text": "海阳核电站轻微泄漏事故，核电投资者付救援费并停发分红3回合", "effect": { "action": "cash", "amount": 0 }, "ecology": { "delta": -5 }, "extraEffect": { "type": "nuclearAccident", "fee": 3000, "stopTurns": 3 }, "icon": "☢️" },
+  { "id": "D_E5", "type": "destiny", "category": "ecology", "text": "入海口水质恶化，鱼类死亡", "effect": { "action": "cash", "amount": -800 }, "ecology": { "delta": -5 }, "icon": "💀" },
+  { "id": "D_E6", "type": "destiny", "category": "ecology", "text": "外来物种入侵，生态失衡", "effect": { "action": "cash", "amount": -700 }, "ecology": { "delta": -8 }, "icon": "🦀" }
 ]

@@ -13,6 +13,9 @@ const turnInfo = computed(() => {
 })
 
 const currentToken = computed(() => store.currentPlayer?.token ?? '')
+
+const ecologyIndex = computed(() => store.ecologyIndex)
+const ecologyStatus = computed(() => store.ecologyStatus)
 </script>
 
 <template>
@@ -21,9 +24,19 @@ const currentToken = computed(() => store.currentPlayer?.token ?? '')
       <span class="brand-icon">🏝️</span>
       <span class="brand-text">仙境海岸·大富翁</span>
     </div>
-    <div class="turn-info">
-      <span v-if="currentToken" class="turn-token">{{ currentToken }}</span>
-      <span>{{ turnInfo }}</span>
+    <div class="center-info">
+      <div class="turn-info">
+        <span v-if="currentToken" class="turn-token">{{ currentToken }}</span>
+        <span>{{ turnInfo }}</span>
+      </div>
+      <button
+        class="ecology-badge"
+        :style="{ borderColor: ecologyStatus.color, color: ecologyStatus.color }"
+        @click="store.showEcologyDetail = true"
+        :title="`生态指数 ${ecologyIndex}（${ecologyStatus.label}）`"
+      >
+        🌿 {{ ecologyIndex }}
+      </button>
     </div>
     <div class="top-actions">
       <button class="rules-btn" @click="showRules = true">📋 规则</button>
@@ -79,6 +92,24 @@ const currentToken = computed(() => store.currentPlayer?.token ?? '')
               <li>每次经过起点抽一张美食卡</li>
               <li>集齐四种可兑换：¥2000 或 1张免租券</li>
               <li>免租券：经过他人地产时自动消耗，免除一次租金</li>
+            </ul>
+          </div>
+          <div class="rules-section">
+            <h4>🌊 四大海洋板块（新增）</h4>
+            <ul>
+              <li>🛢️ <strong>海工装备</strong>：拥有芝罘湾/渔人码头/天马栈桥/机场地标，可在资产面板购买装备。海洋钻井平台(海岸线+30%)、深海机器人(仙山+30%)、海洋监测船(免疫台风赤潮)、海上风电塔(每回合+300)</li>
+              <li>🐚 <strong>海产养殖</strong>：长岛/养马岛/万鸟岛/月亮湾可建造养殖场（与房屋互斥），3级被动收入，每经过起点结算</li>
+              <li>💼 <strong>核电投资</strong>：左下方「投资核电」按钮，海阳核电(高回报有风险)/海上风电场(低回报零风险)，每回合开始分红</li>
+              <li>🌿 <strong>海洋生态</strong>：全局生态指数0~100，生态卡影响指数。优良(+补贴)/预警(养殖-30%)/危机(养殖-60%+核电-50%)</li>
+              <li>🎫 <strong>重掷券</strong>：集齐任一色块奖励1张重掷券（最多3张），可在自己回合使用</li>
+            </ul>
+          </div>
+          <div class="rules-section">
+            <h4>🏆 胜利条件</h4>
+            <ul>
+              <li><strong>破产胜利</strong>：其他所有玩家破产，成为最后存活者</li>
+              <li><strong>仙境铁三角胜利</strong>：同时持有烟台山 + 蓬莱阁 + 养马岛三处地标（抵押不影响，仅看所有权）</li>
+              <li>两种条件实时检测，破产胜利优先于铁三角</li>
             </ul>
           </div>
           <div class="rules-section">
@@ -169,6 +200,34 @@ const currentToken = computed(() => store.currentPlayer?.token ?? '')
 
 .turn-token {
   font-size: 18px;
+}
+
+.center-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  justify-content: center;
+}
+
+.ecology-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.95);
+  border: 2px solid #43A047;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: var(--transition-base);
+  white-space: nowrap;
+}
+
+.ecology-badge:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
 }
 
 .exit-btn {

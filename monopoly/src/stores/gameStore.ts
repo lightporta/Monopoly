@@ -1,11 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { Game } from '@/engine/Game'
-import type { GameMode, PlayerConfig, GameEvent, Player, BoardCell, Property, ColorGroup, GameState } from '@/engine/types'
+import type { GameMode, PlayerConfig, GameEvent, Player, BoardCell, Property, ColorGroup, GameState, EquipmentData, InvestmentProject } from '@/engine/types'
 import type { RedeemOption } from '@/engine/FoodCollector'
+import tokensData from '@/data/tokens.json'
 
 const PLAYER_COLORS = ['#FF6B6B', '#4ECDC4', '#FFE66D', '#95E1D3']
-const PLAYER_TOKENS = ['🗼', '🐳', '🍷', '🐦']
+// 棋子从 tokens.json 读取（6 种：灯塔/鲸鱼/葡萄酒桶/海鸥/蓬莱阁/帆船）
+const PLAYER_TOKENS: string[] = (tokensData as { icon: string }[]).map((t) => t.icon)
 
 export const useGameStore = defineStore('game', () => {
   const engine = new Game()
@@ -24,6 +26,14 @@ export const useGameStore = defineStore('game', () => {
   const showVictory = ref(false)
   const diceAnimating = ref(false)
   const lastEventMessage = ref('')
+
+  // ---- 四大海洋板块 UI 状态 ----
+  const showEquipmentModal = ref(false)
+  const showAquacultureModal = ref(false)
+  const showInvestModal = ref(false)
+  const showEcologyDetail = ref(false)
+  const activeEquipmentPropertyId = ref<string | null>(null)
+  const activeAquaculturePropertyId = ref<string | null>(null)
 
   // 计算属性
   const currentPlayer = computed<Player | null>(() => {
@@ -82,6 +92,10 @@ export const useGameStore = defineStore('game', () => {
     diceAnimating.value = true
 
     setTimeout(() => {
+      // ---- 四大海洋板块：回合开始结算（核电分红/风电塔/生态补贴）----
+      engine.settleTurnStart()
+      syncState()
+
       const event = engine.rollDice()
       syncState()
       lastEventMessage.value = event.message
@@ -331,6 +345,9 @@ export const useGameStore = defineStore('game', () => {
     const player = currentPlayer.value
     if (!player) return
 
+    // ---- 四大海洋板块：AI 简单决策 ----
+    aiOceanDecisions(player, ai)
+
     // 尝试建造
     for (const propId of player.properties) {
       if (ai.decideBuild(player, properties.value, colorGroups.value) === propId) {
@@ -343,6 +360,10 @@ export const useGameStore = defineStore('game', () => {
     // 掷骰
     diceAnimating.value = true
     setTimeout(() => {
+      // ---- 四大海洋板块：回合开始结算 ----
+      engine.settleTurnStart()
+      syncState()
+
       const event = engine.rollDice()
       syncState()
       lastEventMessage.value = event.message
@@ -353,6 +374,54 @@ export const useGameStore = defineStore('game', () => {
       lastEventMessage.value = cellEvent.message
       handleAIEvent(cellEvent)
     }, 900)
+  }
+
+  /** AI 对四大海洋板块的简单决策（购买装备/建养殖/投资） */
+  function aiOceanDecisions(player: Player, ai: ReturnType<typeof engine.getAIPlayer>) {
+    // 装备决策
+    const eqMgr = engine.getEquipmentManager()
+    const availableEquip = eqMgr.getAll()
+      .filter((e) => !eqMgr.isSold(e.id))
+      .map((e) => ({
+        equipId: e.id,
+        soldAtPropertyId: board.value.find((c) => c.index === e.soldAtCell)?.propertyRef ?? '',
+        price: e.price,
+        effectColorGroup: e.effect.type === 'rentBoost' ? e.effect.colorGroup : undefined,
+      }))
+      .filter((e) => e.soldAtPropertyId)
+    const eqDecision = ai.decideBuyEquipment(player, availableEquip)
+    if (eqDecision) {
+      engine.buyEquipment(eqDecision.equipId, eqDecision.soldAtPropertyId, eqDecision.boundPropertyId)
+    }
+
+    // 养殖决策
+    const aquaProps = properties.value
+      .filter((p) => p.aquaculture?.enabled)
+      .map((p) => {
+        const lvl = player.aquaculture[p.id]?.level ?? 0
+        const cost = lvl < 3 ? p.aquaculture!.levels[lvl].cost : 0
+        return { propertyId: p.id, cost }
+      })
+      .filter((p) => p.cost > 0)
+    const aquaDecision = ai.decideBuildAquaculture(player, aquaProps)
+    if (aquaDecision) {
+      engine.buildAquaculture(aquaDecision)
+    }
+
+    // 投资决策
+    const invMgr = engine.getNuclearInvestManager()
+    const availableInv = invMgr.getAll()
+      .filter((p) => invMgr.remainingCopies(p.id) > 0)
+      .map((p) => ({
+        projectId: p.id,
+        cost: p.cost,
+        riskLevel: (p.id.startsWith('NUC') ? 'high' : 'low') as 'low' | 'high',
+      }))
+    const invDecision = ai.decideInvest(player, availableInv)
+    if (invDecision) {
+      engine.investNuclear(invDecision)
+    }
+    syncState()
   }
 
   // AI 处理事件
@@ -495,6 +564,105 @@ export const useGameStore = defineStore('game', () => {
     return owned.length >= group.bonusRule.requiredCount
   }
 
+  // ============ 四大海洋板块：计算属性 ============
+
+  /** 生态指数状态 */
+  const ecologyStatus = computed(() => {
+    const ecoMgr = engine.getEcologyManager()
+    return ecoMgr.getTier()
+  })
+
+  const ecologyIndex = computed(() => state.value.ecology.index)
+
+  /** 装备列表 */
+  const equipmentList = computed<EquipmentData[]>(() => engine.getEquipmentManager().getAll())
+
+  /** 投资项目列表 */
+  const investmentProjects = computed<InvestmentProject[]>(() => engine.getNuclearInvestManager().getAll())
+
+  /** 获取装备已售状态 */
+  function isEquipmentSold(equipId: string): boolean {
+    return engine.getEquipmentManager().isSold(equipId)
+  }
+
+  /** 获取投资剩余份数 */
+  function investmentRemaining(projectId: string): number {
+    return engine.getNuclearInvestManager().remainingCopies(projectId)
+  }
+
+  /** 当前玩家重掷券数 */
+  const reRollTickets = computed(() => currentPlayer.value?.reRollTickets ?? 0)
+
+  /** 当前玩家是否能使用重掷券 */
+  const canUseReRollTicket = computed(() => {
+    const p = currentPlayer.value
+    return p && !p.isAI && !p.bankrupt && (p.reRollTickets > 0) && state.value.phase === 'idle' && !pendingModal.value
+  })
+
+  /** 检查地产是否支持养殖 */
+  function isAquacultureProperty(propertyId: string): boolean {
+    return engine.getAquacultureManager().isAquacultureProperty(propertyId)
+  }
+
+  /** 获取地产的养殖等级 */
+  function getAquacultureLevel(propertyId: string, playerId: number): number {
+    const player = state.value.players.find(p => p.id === playerId)
+    if (!player) return 0
+    return player.aquaculture[propertyId]?.level ?? 0
+  }
+
+  // ============ 四大海洋板块：玩家操作 ============
+
+  /** 购买装备 */
+  function buyEquipment(equipId: string, soldAtPropertyId: string, boundPropertyId: string | null) {
+    const ok = engine.buyEquipment(equipId, soldAtPropertyId, boundPropertyId)
+    if (ok) syncState()
+    return ok
+  }
+
+  /** 拆卸装备 */
+  function unequip(equipId: string) {
+    const ok = engine.unequip(equipId)
+    if (ok) syncState()
+    return ok
+  }
+
+  /** 建造/升级养殖场 */
+  function buildAquaculture(propertyId: string) {
+    const ok = engine.buildAquaculture(propertyId)
+    if (ok) syncState()
+    return ok
+  }
+
+  /** 拆除养殖场 */
+  function demolishAquaculture(propertyId: string) {
+    const ok = engine.demolishAquaculture(propertyId)
+    if (ok) syncState()
+    return ok
+  }
+
+  /** 投资核电/风电 */
+  function investNuclear(projectId: string) {
+    const ok = engine.investNuclear(projectId)
+    if (ok) syncState()
+    return ok
+  }
+
+  /** 使用重掷券 */
+  function useReRollTicket() {
+    if (!canUseReRollTicket.value) return false
+    const ok = engine.useReRollTicket()
+    if (ok) syncState()
+    return ok
+  }
+
+  /** 估算玩家总资产（含四大板块） */
+  function estimateAssets(playerId: number) {
+    const player = state.value.players.find(p => p.id === playerId)
+    if (!player) return null
+    return engine.estimatePlayerAssets(player)
+  }
+
   return {
     state,
     board,
@@ -546,5 +714,29 @@ export const useGameStore = defineStore('game', () => {
     hasColorGroupBonus,
     PLAYER_COLORS,
     PLAYER_TOKENS,
+    // ---- 四大海洋板块 ----
+    showEquipmentModal,
+    showAquacultureModal,
+    showInvestModal,
+    showEcologyDetail,
+    activeEquipmentPropertyId,
+    activeAquaculturePropertyId,
+    ecologyStatus,
+    ecologyIndex,
+    equipmentList,
+    investmentProjects,
+    reRollTickets,
+    canUseReRollTicket,
+    isEquipmentSold,
+    investmentRemaining,
+    isAquacultureProperty,
+    getAquacultureLevel,
+    buyEquipment,
+    unequip,
+    buildAquaculture,
+    demolishAquaculture,
+    investNuclear,
+    useReRollTicket,
+    estimateAssets,
   }
 })

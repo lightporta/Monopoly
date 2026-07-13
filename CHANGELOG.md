@@ -1,5 +1,68 @@
 # 更新日志
 
+## v3.0.0 - 四大海洋板块 + UI 优化（2026-07-13）
+
+### 新增功能 — 四大海洋板块（不破坏原玩法）
+
+#### 🛢️ 海工装备系统
+- 4 件装备：海洋钻井平台(海岸线+30%)、深海机器人(仙山+30%)、海洋监测船(免疫台风赤潮)、海上风电塔(每回合+300)
+- 4 处装备供应点：芝罘湾广场/渔人码头/天马栈桥/烟台蓬莱国际机场
+- 玩家必须拥有供应点地标才能购买；过路费 = 基础 × 色块 × 建筑 × 装备系数
+
+#### 🐚 海产养殖系统
+- 4 处养殖地产：长岛(海参)/养马岛(扇贝)/万鸟岛(海带)/月亮湾(鲍鱼)
+- 3 级养殖场：育苗场(L1)→养殖场(L2)→深海牧场(L3)
+- 每经过起点结算收益；与房屋互斥；受生态减益影响
+
+#### 💼 核电投资系统
+- 3 个项目：海阳核电1号/2号机组(高风险高回报)、海上风电场(低风险)
+- 左下方固定「💼 投资核电」按钮入口
+- 每回合开始分红；D_E4 核事故卡触发付救援费+停发分红
+
+#### 🌿 海洋生态系统
+- 全局生态指数(0~100，初始50)，4 档阈值：优良/正常/预警/危机
+- 新增 12 张生态卡(6 机会+6 命运)，向现有牌堆追加
+- TopBar 生态徽章显示；影响养殖收益与核电分红
+
+#### 🎫 重掷券（决策点）
+- 集齐任一色块奖励 1 张重掷券（最多 3 张）
+- 自己回合可使用，获得额外掷骰机会
+
+### UI 优化
+- 🎨 **棋子悬浮到格子外侧**：新增 TokenLayer 独立图层，棋子不再被格内 overflow:hidden 裁剪
+- 🎨 **补全 6 种棋子**：新增 tokens.json，清理重复硬编码（原仅 4 种，补全蓬莱阁🏯/帆船⛵）
+- 📜 **日志增强**：四大板块日志带专属图标着色 + 导出 .txt 功能
+- 🌿 **生态徽章**：TopBar 实时显示生态指数，点击查看详情
+
+### 规则完善
+- 明确胜利条件：破产胜利(优先) + 仙境铁三角胜利(抵押不影响)
+- 结算总资产纳入四大板块估值（养殖场+装备+投资成本）
+
+### 新建文件（15 个）
+- 数据：`equipment.json`、`nuclear-investments.json`、`ecology-config.json`、`tokens.json`
+- 引擎：`Equipment.ts`、`Aquaculture.ts`、`NuclearInvest.ts`、`Ecology.ts`
+- 组件：`TokenLayer.vue`、`EquipmentModal.vue`、`AquacultureModal.vue`、`InvestModal.vue`、`EcologyDetailModal.vue`
+- 文档：`docs/design/game-design-v3.md`
+
+### 修改文件（16 个）
+- 数据：`properties.json`(+aquaculture)、`cards-chance.json`(+6生态卡)、`cards-destiny.json`(+6生态卡)、`game-config.json`(+四板块配置)
+- 引擎：`types.ts`、`Game.ts`、`RentCalculator.ts`、`Bankruptcy.ts`、`AIPlayer.ts`
+- 状态：`gameStore.ts`
+- 视图：`HomeView.vue`、`GameView.vue`
+- 组件：`BoardMap.vue`、`BoardCell.vue`、`TopBar.vue`、`ActionButtons.vue`、`GameLog.vue`、`BuildModal.vue`
+
+### 技术特点
+- 核心铁律：36 格棋盘结构不变，四板块以"扩展"方式接入
+- 过路费公式以乘法叠加装备系数，原色块/建筑逻辑零改动
+- 胜利条件(VictoryChecker)完全未改
+- 类型检查通过，构建成功
+
+### 已知限制
+- 服务端 `server/engine.js` 未同步四板块逻辑（联机模式暂不同步，标注为待办）
+- 服务端/前端引擎数据已分叉（propertyRef 命名不一致）
+
+---
+
 ## v2.0.0 - 联机版改造
 
 ### 新增功能

@@ -1,13 +1,17 @@
 // 游戏主控制器：整合所有子系统，管理游戏状态与流程
+// 四大海洋板块扩展：以"叠加"方式接入装备/养殖/核电/生态，不破坏原玩法逻辑。
 
 import type {
   BoardCell,
   Card,
   ColorGroup,
+  EcologyState,
+  EquipmentData,
   GameConfig,
   GameEvent,
   GameState,
   GameMode,
+  InvestmentProject,
   Player,
   PlayerConfig,
   Property
@@ -22,6 +26,10 @@ import type { FoodData, RedeemOption } from './FoodCollector'
 import { BankruptcyHandler } from './Bankruptcy'
 import { VictoryChecker } from './VictoryChecker'
 import { AIPlayer } from './AIPlayer'
+import { EquipmentManager } from './Equipment'
+import { AquacultureManager } from './Aquaculture'
+import { NuclearInvestManager } from './NuclearInvest'
+import { EcologyManager } from './Ecology'
 
 import gameConfigData from '../data/game-config.json'
 import boardData from '../data/board.json'
@@ -30,6 +38,8 @@ import colorGroupsData from '../data/color-groups.json'
 import cardsChanceData from '../data/cards-chance.json'
 import cardsDestinyData from '../data/cards-destiny.json'
 import cardsFoodData from '../data/cards-food.json'
+import equipmentData from '../data/equipment.json'
+import nuclearInvestmentsData from '../data/nuclear-investments.json'
 
 export class Game {
   // 静态数据
@@ -51,6 +61,13 @@ export class Game {
   private bankruptcyHandler: BankruptcyHandler
   private victoryChecker: VictoryChecker
   private aiPlayer: AIPlayer
+  // ---- 四大海洋板块子系统 ----
+  private equipmentManager: EquipmentManager
+  private aquacultureManager: AquacultureManager
+  private nuclearInvestManager: NuclearInvestManager
+  private ecologyManager: EcologyManager
+  private equipmentDataList: EquipmentData[]
+  private investmentProjects: InvestmentProject[]
 
   // 游戏状态
   private state: GameState
@@ -84,10 +101,27 @@ export class Game {
     this.victoryChecker = new VictoryChecker(this.properties, this.config)
     this.aiPlayer = new AIPlayer('normal', this.propertyManager)
 
-    this.chanceDeck.shuffle()
-    this.destinyDeck.shuffle()
+    // ---- 四大海洋板块子系统初始化 ----
+    this.equipmentDataList = equipmentData as unknown as EquipmentData[]
+    this.investmentProjects = (nuclearInvestmentsData as unknown as { projects: InvestmentProject[] }).projects
 
     this.state = this.createInitialState()
+    this.equipmentManager = new EquipmentManager(
+      this.equipmentDataList,
+      this.properties,
+      new Set(this.state.soldEquipmentIds)
+    )
+    this.aquacultureManager = new AquacultureManager(this.properties, this.config)
+    this.nuclearInvestManager = new NuclearInvestManager(
+      this.investmentProjects,
+      this.state.soldInvestmentCopies
+    )
+    this.ecologyManager = new EcologyManager(this.config, this.state.ecology)
+    // 回填装备管理器到租金计算器（避免循环依赖）
+    this.rentCalculator.setEquipmentManager(this.equipmentManager)
+
+    this.chanceDeck.shuffle()
+    this.destinyDeck.shuffle()
   }
 
   // ---------- 初始化 ----------
@@ -103,7 +137,11 @@ export class Game {
       pendingEvent: null,
       winner: null,
       winReason: null,
-      log: []
+      log: [],
+      // ---- 四大海洋板块全局状态 ----
+      ecology: { index: this.config.ecology.initial, turnsSinceLastEcoCard: 0 },
+      soldEquipmentIds: [],
+      soldInvestmentCopies: {}
     }
   }
 
@@ -125,7 +163,12 @@ export class Game {
       skipNextTurn: false,
       doublesStreak: 0,
       bankrupt: false,
-      freeRentTickets: 0
+      freeRentTickets: 0,
+      // ---- 四大海洋板块玩家状态 ----
+      equipment: [],
+      aquaculture: {},
+      investments: [],
+      reRollTickets: 0
     }))
 
     this.state = {
@@ -138,13 +181,30 @@ export class Game {
       pendingEvent: null,
       winner: null,
       winReason: null,
-      log: []
+      log: [],
+      ecology: { index: this.config.ecology.initial, turnsSinceLastEcoCard: 0 },
+      soldEquipmentIds: [],
+      soldInvestmentCopies: {}
     }
     this.extraTurnPending = false
     this.dice.resetStreak()
     this.chanceDeck.shuffle()
     this.destinyDeck.shuffle()
-    this.addLog(`游戏开始，共 ${players.length} 名玩家`)
+
+    // 重置四大海洋板块子系统状态
+    this.ecologyManager.reset()
+    this.equipmentManager = new EquipmentManager(
+      this.equipmentDataList,
+      this.properties,
+      new Set(this.state.soldEquipmentIds)
+    )
+    this.nuclearInvestManager = new NuclearInvestManager(
+      this.investmentProjects,
+      this.state.soldInvestmentCopies
+    )
+    this.rentCalculator.setEquipmentManager(this.equipmentManager)
+
+    this.addLog(`游戏开始，共 ${players.length} 名玩家，生态指数初始 ${this.config.ecology.initial}`)
   }
 
   // ---------- 公共属性访问 ----------
@@ -173,6 +233,22 @@ export class Game {
     return this.foodCollector
   }
 
+  getEquipmentManager(): EquipmentManager {
+    return this.equipmentManager
+  }
+
+  getAquacultureManager(): AquacultureManager {
+    return this.aquacultureManager
+  }
+
+  getNuclearInvestManager(): NuclearInvestManager {
+    return this.nuclearInvestManager
+  }
+
+  getEcologyManager(): EcologyManager {
+    return this.ecologyManager
+  }
+
   // ---------- 日志 ----------
 
   addLog(message: string): void {
@@ -192,10 +268,21 @@ export class Game {
     return this.cellByIndex.get(index)
   }
 
-  /** 处理经过起点：+现金 + 抽美食卡 */
+  /** 处理经过起点：+现金 + 抽美食卡 + 养殖场收益结算（四大板块） */
   private handlePassStart(player: Player): GameEvent {
     player.cash += this.config.start.passReward
     const food = this.foodCollector.drawOnPassStart(player)
+
+    // ---- 四大板块：养殖场收益结算（受生态减益影响）----
+    const tier = this.ecologyManager.getTier()
+    const aquaResult = this.aquacultureManager.settleIncome(player, tier.aquaculturePenalty)
+    let aquaLog = ''
+    if (aquaResult.total > 0) {
+      const detail = aquaResult.details.map((d) => `${d.name}+${d.income}`).join('，')
+      aquaLog = `；🐚 养殖场收益 +${aquaResult.total}（${detail}）`
+      this.addLog(`🐚 ${player.name} 经过起点，养殖场收益 +${aquaResult.total}`)
+    }
+
     const event: GameEvent = {
       type: 'passStart',
       playerId: player.id,
@@ -203,7 +290,7 @@ export class Game {
       amount: this.config.start.passReward,
       message: `${player.name} 经过起点，获得 ${this.config.start.passReward}${
         food ? `，并抽取美食卡：${food.name}` : ''
-      }`
+      }${aquaLog}`
     }
     this.addLog(event.message)
     return event
@@ -447,8 +534,17 @@ export class Game {
     if (visitor.cash < 0) {
       const deficit = -visitor.cash
       this.bankruptcyHandler.liquidate(visitor, deficit)
+      // ---- 四大板块：清算装备卖回银行 ----
+      if (visitor.cash < 0 && visitor.equipment.length > 0) {
+        const refund = this.equipmentManager.liquidateAll(visitor)
+        visitor.cash += refund
+        if (refund > 0) this.addLog(`🛢️ ${visitor.name} 破产清算，装备卖回银行 +${refund}`)
+      }
       if (visitor.cash < 0) {
         this.bankruptcyHandler.declareBankrupt(visitor)
+        // 破产时投资归零、养殖场清除（由 declareBankrupt 处理）
+        this.aquacultureManager.liquidateAll(visitor)
+        this.nuclearInvestManager.liquidateAll(visitor)
         message = `${visitor.name} 无法支付租金 ${rent}，宣告破产`
         const event: GameEvent = {
           type: 'bankrupt',
@@ -504,9 +600,8 @@ export class Game {
 
     // 现金变动可能触发破产
     if (player.cash < 0) {
-      this.bankruptcyHandler.liquidate(player, -player.cash)
-      if (player.cash < 0) {
-        this.bankruptcyHandler.declareBankrupt(player)
+      const bankrupt = this.liquidateForCardDebt(player)
+      if (bankrupt) {
         this.addLog(`${player.name} 因机会卡扣款破产`)
         this.checkVictory()
       }
@@ -540,9 +635,8 @@ export class Game {
     this.addLog(event.message)
 
     if (player.cash < 0) {
-      this.bankruptcyHandler.liquidate(player, -player.cash)
-      if (player.cash < 0) {
-        this.bankruptcyHandler.declareBankrupt(player)
+      const bankrupt = this.liquidateForCardDebt(player)
+      if (bankrupt) {
         this.addLog(`${player.name} 因命运卡扣款破产`)
         this.checkVictory()
       }
@@ -550,7 +644,34 @@ export class Game {
     return event
   }
 
-  /** 应用卡牌效果（Demo 版仅实现现金效果） */
+  /**
+   * 卡牌扣款触发的破产清算：先变卖建筑/抵押地产，再卖装备，仍不足则破产。
+   * 返回 true 表示已宣告破产。
+   */
+  private liquidateForCardDebt(player: Player): boolean {
+    if (player.cash >= 0) return false
+    this.bankruptcyHandler.liquidate(player, -player.cash)
+    // 四大板块：装备卖回银行
+    if (player.cash < 0 && player.equipment.length > 0) {
+      const refund = this.equipmentManager.liquidateAll(player)
+      player.cash += refund
+      if (refund > 0) this.addLog(`🛢️ ${player.name} 破产清算，装备卖回银行 +${refund}`)
+    }
+    if (player.cash < 0) {
+      this.bankruptcyHandler.declareBankrupt(player)
+      this.aquacultureManager.liquidateAll(player)
+      this.nuclearInvestManager.liquidateAll(player)
+      return true
+    }
+    return false
+  }
+
+  /**
+   * 应用卡牌效果：
+   * - cash：现金增减（原逻辑）
+   * - 生态卡（category === 'ecology'）：触发生态指数变化 + 附加效果（赤潮/台风/核事故）
+   * - 海洋监测船免疫：持有 EQ03 的玩家免疫台风/赤潮的负面效果
+   */
   private applyCardEffect(player: Player, card: Card): void {
     const effect = card.effect
     switch (effect.action) {
@@ -566,6 +687,60 @@ export class Game {
       case 'collectFood':
         // Demo 版暂不实现非现金效果
         break
+    }
+
+    // ---- 四大板块：生态卡处理 ----
+    if (card.category === 'ecology') {
+      // 生态指数变化
+      if (card.ecology) {
+        const result = this.ecologyManager.applyCardDelta(card.ecology.delta)
+        this.addLog(
+          `🌿 生态指数 ${result.actualDelta > 0 ? '+' : ''}${result.actualDelta}（当前 ${result.newIndex}，${result.tier.label}）`
+        )
+      }
+
+      // 附加效果（赤潮减益 / 台风降级 / 核事故）
+      if (card.extraEffect) {
+        const hasMonitorShip = this.equipmentManager.hasMonitorShip(player)
+        switch (card.extraEffect.type) {
+          case 'aquacultureDebuff': {
+            // 赤潮：海洋监测船免疫
+            if (hasMonitorShip) {
+              this.addLog(`🛳️ ${player.name} 海洋监测船生效，免疫赤潮`)
+            } else {
+              const affected = this.aquacultureManager.applyRedTideDebuff(player)
+              if (affected.length > 0) {
+                this.addLog(`⚠️ ${player.name} 的养殖场（${affected.join('、')}）因赤潮收益减半 ${card.extraEffect.turns} 回合`)
+              }
+            }
+            break
+          }
+          case 'aquacultureDowngrade': {
+            // 台风：海洋监测船免疫
+            if (hasMonitorShip) {
+              this.addLog(`🛳️ ${player.name} 海洋监测船生效，免疫台风`)
+            } else {
+              const downgraded = this.aquacultureManager.applyTyphoonDowngrade(player)
+              if (downgraded) {
+                this.addLog(`⚠️ ${player.name} 的 ${downgraded} 养殖场因台风降级`)
+              }
+            }
+            break
+          }
+          case 'nuclearAccident': {
+            // 核事故：所有核电投资者付救援费 + 停发分红
+            const results = this.nuclearInvestManager.triggerAccident(this.state.players, 'NUC1')
+            for (const r of results) {
+              if (r.fee > 0) {
+                this.addLog(`☢️ 核事故！${r.player.name} 付 ${r.fee} 救援费，${r.projectName} 停发分红 ${r.stopTurns} 回合`)
+              } else {
+                this.addLog(`☢️ 核事故连锁！${r.player.name} 的 ${r.projectName} 停发分红 ${r.stopTurns} 回合`)
+              }
+            }
+            break
+          }
+        }
+      }
     }
   }
 
@@ -672,9 +847,34 @@ export class Game {
     if (ok) {
       this.addLog(`${player.name} 购买 ${data.name}，花费 ${data.price}（剩余 ${player.cash}）`)
       this.state.pendingEvent = null
+
+      // ---- 四大板块：集齐色块奖励重掷券 ----
+      this.checkColorGroupCompleteAndReward(player, data.colorGroup)
+
       this.checkVictory() // 购买后可能触发铁三角胜利
     }
     return ok
+  }
+
+  /**
+   * 检查玩家是否集齐某色块，若集齐则奖励重掷券（最多累积上限）。
+   */
+  private checkColorGroupCompleteAndReward(player: Player, groupId: string): void {
+    const group = this.colorGroups.find((g) => g.id === groupId)
+    if (!group) return
+    const owned = group.propertyIds.filter((id) => player.properties.includes(id)).length
+    const required = group.bonusRule.type === 'all'
+      ? group.propertyIds.length
+      : group.bonusRule.requiredCount
+    if (owned === required) {
+      const max = this.config.nuclear.reRollTicketsMax
+      const reward = this.config.nuclear.reRollTicketOnColorGroupComplete
+      const before = player.reRollTickets
+      player.reRollTickets = Math.min(max, player.reRollTickets + reward)
+      if (player.reRollTickets > before) {
+        this.addLog(`🎫 ${player.name} 集齐 ${group.name}，奖励 ${player.reRollTickets - before} 张重掷券（当前 ${player.reRollTickets}）`)
+      }
+    }
   }
 
   /** 放弃购买（Demo 版不触发拍卖，直接继续） */
@@ -882,6 +1082,177 @@ export class Game {
     this.addLog(`${player.name} 移动至 ${this.getCell(targetIndex)?.name}`)
     // 处理目标格子事件
     return this.handleCellEvent()
+  }
+
+  // ---------- 四大海洋板块：回合开始结算 ----------
+
+  /**
+   * 回合开始结算（在自己回合掷骰前调用）：
+   * 1. 核电/风电分红入账（受生态危机减益）
+   * 2. 海上风电塔被动收入（装备 EQ04）
+   * 3. 生态优良补贴
+   * 4. 维护：递减核电停发回合、养殖赤潮减益、生态自然恢复
+   * 返回汇总日志条目数组。
+   */
+  settleTurnStart(): string[] {
+    const logs: string[] = []
+    const player = this.currentPlayer()
+    if (!player || player.bankrupt) return logs
+
+    const tier = this.ecologyManager.getTier()
+
+    // 1. 核电/风电分红
+    if (player.investments.length > 0) {
+      const result = this.nuclearInvestManager.settleDividend(player, tier.nuclearDividendPenalty)
+      if (result.total > 0) {
+        player.cash += 0 // 已在 settleDividend 内入账
+        const detail = result.details.map((d) => `${d.name}+${d.amount}`).join('，')
+        const msg = `💼 ${player.name} 回合开始收投资分红 +${result.total}（${detail}）`
+        logs.push(msg)
+        this.addLog(msg)
+      }
+    }
+
+    // 2. 海上风电塔被动收入（装备 EQ04）
+    const passive = this.equipmentManager.getPassiveIncome(player)
+    if (passive > 0) {
+      player.cash += passive
+      const msg = `⚡ ${player.name} 海上风电塔发电 +${passive}`
+      logs.push(msg)
+      this.addLog(msg)
+    }
+
+    // 3. 生态优良补贴（每回合所有玩家收，但此处只给当前玩家——按文档"每回合所有玩家"语义，
+    //    实际上补贴应在每个玩家自己回合开始时收，所以这里正确）
+    if (tier.subsidyPerTurn > 0) {
+      player.cash += tier.subsidyPerTurn
+      const msg = `🌿 ${player.name} 生态优良，收环保补贴 +${tier.subsidyPerTurn}`
+      logs.push(msg)
+      this.addLog(msg)
+    }
+
+    // 4. 维护
+    this.nuclearInvestManager.tickStopTurns(player)
+    this.aquacultureManager.tickDebuffs(player)
+    const recovery = this.ecologyManager.tickNaturalRecovery()
+    if (recovery.recovered > 0) {
+      const msg = `🌿 生态自然恢复 +${recovery.recovered}（当前 ${recovery.newIndex}）`
+      logs.push(msg)
+      this.addLog(msg)
+    }
+
+    return logs
+  }
+
+  // ---------- 四大海洋板块：玩家操作 ----------
+
+  /** 购买装备 */
+  buyEquipment(equipId: string, soldAtPropertyId: string, boundPropertyId: string | null): boolean {
+    const player = this.currentPlayer()
+    if (!player) return false
+    const result = this.equipmentManager.buy(equipId, player, soldAtPropertyId, boundPropertyId)
+    if (result.ok) {
+      const data = this.equipmentManager.getData(equipId)
+      const boundName = boundPropertyId ? this.propertyMap.get(boundPropertyId)?.name : null
+      const msg = `${data?.icon ?? '🛢️'} ${player.name} 购买装备：${data?.name}${
+        boundName ? `，装配到 ${boundName}` : ''
+      }${data?.effect.type === 'rentBoost' ? '，过路费 +30%' : ''}`
+      this.addLog(msg)
+      return true
+    }
+    this.addLog(`❌ ${result.message}`)
+    return false
+  }
+
+  /** 拆卸装备 */
+  unequip(equipId: string): boolean {
+    const player = this.currentPlayer()
+    if (!player) return false
+    const ok = this.equipmentManager.unequip(equipId, player)
+    if (ok) {
+      const data = this.equipmentManager.getData(equipId)
+      this.addLog(`🔧 ${player.name} 拆卸装备：${data?.name ?? equipId}`)
+    }
+    return ok
+  }
+
+  /** 建造/升级养殖场 */
+  buildAquaculture(propertyId: string): boolean {
+    const player = this.currentPlayer()
+    if (!player) return false
+    const result = this.aquacultureManager.buildOrUpgrade(propertyId, player)
+    if (result.ok) {
+      this.addLog(`🐚 ${player.name} ${result.message}，支付 ${result.cost}`)
+      return true
+    }
+    this.addLog(`❌ ${result.message}`)
+    return false
+  }
+
+  /** 拆除养殖场 */
+  demolishAquaculture(propertyId: string): boolean {
+    const player = this.currentPlayer()
+    if (!player) return false
+    const result = this.aquacultureManager.demolish(propertyId, player)
+    if (result.ok) {
+      this.addLog(`🔧 ${player.name} ${result.message}`)
+      return true
+    }
+    return false
+  }
+
+  /** 投资核电/风电 */
+  investNuclear(projectId: string): boolean {
+    const player = this.currentPlayer()
+    if (!player) return false
+    const result = this.nuclearInvestManager.invest(projectId, player)
+    if (result.ok) {
+      const data = this.nuclearInvestManager.getData(projectId)
+      this.addLog(`💼 ${player.name} 投资 ${data?.name ?? projectId}，支付 ${data?.cost}`)
+      return true
+    }
+    this.addLog(`❌ ${result.message}`)
+    return false
+  }
+
+  /** 使用重掷券（标记本回合可再掷一次，不切换玩家） */
+  useReRollTicket(): boolean {
+    const player = this.currentPlayer()
+    if (!player || player.reRollTickets <= 0) return false
+    player.reRollTickets -= 1
+    this.extraTurnPending = true
+    this.addLog(`🎫 ${player.name} 使用重掷券，可再掷一次（剩余 ${player.reRollTickets} 张）`)
+    return true
+  }
+
+  /** 获取玩家总资产（含四大板块估值） */
+  estimatePlayerAssets(player: Player): {
+    cash: number
+    properties: number
+    buildings: number
+    aquaculture: number
+    equipment: number
+    investments: number
+    total: number
+  } {
+    const propsValue = player.properties.reduce((sum, id) => {
+      const p = this.propertyMap.get(id)
+      return sum + (p?.price ?? 0)
+    }, 0)
+    const bldValue = player.properties.reduce((sum, id) => {
+      const p = this.propertyMap.get(id)
+      const lvl = player.buildings[id] ?? 0
+      return sum + (p?.buildCost ?? 0) * lvl
+    }, 0)
+    const aquaValue = this.aquacultureManager.estimateValue(player)
+    const equipValue = player.equipment.reduce((sum, e) => {
+      const d = this.equipmentManager.getData(e.equipId)
+      return sum + (d?.price ?? 0)
+    }, 0)
+    const invValue = this.nuclearInvestManager.estimateValue(player)
+    const cash = player.cash
+    const total = cash + propsValue + bldValue + aquaValue + equipValue + invValue
+    return { cash, properties: propsValue, buildings: bldValue, aquaculture: aquaValue, equipment: equipValue, investments: invValue, total }
   }
 
   // ---------- 回合管理 ----------
