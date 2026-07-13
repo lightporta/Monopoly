@@ -29,7 +29,13 @@ const server = http.createServer((req, res) => {
       '.png': 'image/png',
       '.jpg': 'image/jpeg'
     };
-    res.writeHead(200, { 'Content-Type': types[ext] || 'application/octet-stream' });
+    // HTML 入口禁止缓存（确保用户每次拿到最新前端，避免旧 WS 配置导致联机失败）；
+    // 静态资源允许浏览器缓存（文件名含 hash，内容变更会自动失效）
+    const headers = { 'Content-Type': types[ext] || 'application/octet-stream' };
+    if (ext === '.html') {
+      headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+    }
+    res.writeHead(200, headers);
     fs.createReadStream(filePath).pipe(res);
   } else {
     res.writeHead(404);
