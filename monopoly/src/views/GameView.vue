@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGameStore } from '@/stores/gameStore'
+import { onlineSDK } from '@/online/onlineSdk.js'
 import TopBar from '@/components/hud/TopBar.vue'
 import BoardMap from '@/components/board/BoardMap.vue'
 import PlayerPanel from '@/components/hud/PlayerPanel.vue'
@@ -51,6 +52,9 @@ function checkMobile() {
   isMobile.value = window.innerWidth < 768
 }
 
+// ============ 联机模式：监听服务端状态 ============
+let onlineUnsubs: (() => void)[] = []
+
 onMounted(() => {
   checkMobile()
   window.addEventListener('resize', checkMobile)
@@ -60,10 +64,23 @@ onMounted(() => {
     if (now - lastTouchEnd <= 300) e.preventDefault()
     lastTouchEnd = now
   }, { passive: false })
+
+  // 联机模式：接收服务端广播的完整游戏状态
+  if (store.isOnlineMode) {
+    onlineUnsubs.push(onlineSDK.on('game:state', (data: any) => {
+      store.applyOnlineState(data.gameState || data)
+    }))
+    onlineUnsubs.push(onlineSDK.on('game:ended', (data: any) => {
+      // 服务端已通过 game:state 广播 ended 状态，这里做额外 UI 处理
+      store.applyOnlineState({ ...store.onlineGameState, phase: 'ended', winner: data.winner ? { name: data.winner } : null, winReason: data.winReason })
+    }))
+  }
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
+  onlineUnsubs.forEach(fn => fn())
+  onlineUnsubs = []
 })
 </script>
 
@@ -71,47 +88,75 @@ onUnmounted(() => {
   <div class="game-view">
     <TopBar />
 
-    <div class="game-main">
-      <div class="board-area">
-        <BoardMap />
-      </div>
-
-      <!-- 桌面端：右侧面板 -->
-      <div v-if="!isMobile" class="side-panel">
-        <PlayerPanel />
-        <GameLog />
-      </div>
-
-      <!-- 移动端：抽屉按钮 -->
-      <button v-if="isMobile" class="side-drawer-fab" @click="showSideDrawer = !showSideDrawer">
-        {{ showSideDrawer ? '✕' : '👥' }}
-      </button>
-    </div>
-
-    <!-- 移动端抽屉 -->
-    <Transition name="drawer">
-      <div v-if="isMobile && showSideDrawer" class="side-drawer-mask" @click="showSideDrawer = false">
-        <div class="side-drawer" @click.stop>
-          <div class="drawer-handle" />
+    <!-- 桌面端布局：棋盘 + 右侧面板 -->
+    <template v-if="!isMobile">
+      <div class="game-main">
+        <div class="board-area">
+          <BoardMap />
+        </div>
+        <div class="side-panel">
           <PlayerPanel />
           <GameLog />
         </div>
       </div>
-    </Transition>
+      <div class="bottom-bar">
+        <DiceWidget />
+        <ActionButtons
+          @manage-assets="showBuild = true"
+          @redeem-food="showFoodRedeem = true"
+          @open-invest="showInvest = true"
+        />
+      </div>
+      <!-- 桌面端投资按钮 -->
+      <button class="invest-fab" @click="showInvest = true" aria-label="投资核电">
+        💼 投资核电
+      </button>
+    </template>
 
-    <div class="bottom-bar">
-      <DiceWidget />
-      <ActionButtons
-        @manage-assets="showBuild = true"
-        @redeem-food="showFoodRedeem = true"
-        @open-invest="showInvest = true"
-      />
-    </div>
+    <!-- 移动端布局：棋盘 → 按钮一排 → 玩家状态+日志（可滚动） -->
+    <template v-else>
+      <div class="mobile-layout">
+        <!-- 棋盘区（自适应高度） -->
+        <div class="mobile-board">
+          <BoardMap />
+        </div>
 
-    <!-- 四大海洋板块：投资核电按钮（左下方固定） -->
-    <button class="invest-fab" @click="showInvest = true" aria-label="投资核电">
-      💼 投资核电
-    </button>
+        <!-- 骰子显示（紧凑） -->
+        <div class="mobile-dice">
+          <DiceWidget />
+        </div>
+
+        <!-- 主操作按钮一排 -->
+        <div class="mobile-actions">
+          <button class="m-btn m-roll" :disabled="!store.canRollDice" @click="store.rollDice()">
+            🎲 掷骰
+          </button>
+          <button class="m-btn" :disabled="!store.canManageAssets" @click="showBuild = true">
+            🏠 资产
+          </button>
+          <button class="m-btn" :disabled="!store.canRollDice" @click="showFoodRedeem = true">
+            🍱 美食
+          </button>
+          <button class="m-btn m-invest" @click="showInvest = true">
+            💼 投资核电
+          </button>
+        </div>
+        <div v-if="store.reRollTickets > 0" class="mobile-extras">
+          <button class="m-btn m-reroll" :disabled="!store.canUseReRollTicket" @click="store.useReRollTicket()">
+            🎫 重掷({{ store.reRollTickets }})
+          </button>
+          <button class="m-btn m-skip" :disabled="!store.canSkipTurn" @click="store.skipTurn()">
+            🏳️ 放弃
+          </button>
+        </div>
+
+        <!-- 玩家状态 + 日志（可滚动） -->
+        <div class="mobile-status">
+          <PlayerPanel />
+          <GameLog />
+        </div>
+      </div>
+    </template>
 
     <!-- 弹窗层 -->
     <CardModal v-if="showCard" />
@@ -145,6 +190,108 @@ onUnmounted(() => {
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
   box-sizing: border-box;
+}
+
+/* ============ 移动端布局：棋盘 → 按钮 → 状态日志 ============ */
+.mobile-layout {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding: 4px;
+}
+
+.mobile-board {
+  flex-shrink: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mobile-dice {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  padding: 2px 0;
+}
+
+.mobile-actions {
+  display: flex;
+  gap: 6px;
+  padding: 6px 6px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  border-radius: 12px;
+  margin: 4px 0;
+  flex-shrink: 0;
+}
+
+.mobile-extras {
+  display: flex;
+  gap: 6px;
+  padding: 0 6px 4px;
+  flex-shrink: 0;
+}
+
+.m-btn {
+  flex: 1;
+  padding: 10px 4px;
+  font-size: 12px;
+  font-weight: 700;
+  border: none;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--color-ocean, #1E88E5);
+  border: 1.5px solid var(--color-ocean, #1E88E5);
+  cursor: pointer;
+  min-height: 44px;
+  transition: all 0.15s;
+}
+
+.m-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.m-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.m-roll {
+  background: linear-gradient(135deg, #1E88E5, #1565c0);
+  color: #fff;
+  border: none;
+}
+
+.m-invest {
+  background: linear-gradient(135deg, #6A1B9A, #4a148c);
+  color: #fff;
+  border: none;
+}
+
+.m-reroll {
+  background: linear-gradient(135deg, #FBC02D, #F57F17);
+  color: #fff;
+  border: none;
+}
+
+.m-skip {
+  background: linear-gradient(135deg, #78909C, #546E7A);
+  color: #fff;
+  border: none;
+}
+
+.mobile-status {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .game-main {

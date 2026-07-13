@@ -35,6 +35,11 @@ const isPositive = computed(() => {
 })
 
 function confirm() {
+  // 联机模式：服务端已自动推进回合，只需关闭弹窗（清空 pendingEvent）
+  if (store.isOnlineMode) {
+    store.clearPendingEvent()
+    return
+  }
   store.clearPendingEvent()
   store.endTurn()
 }

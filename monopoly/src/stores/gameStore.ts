@@ -19,6 +19,8 @@ export const useGameStore = defineStore('game', () => {
 
   const isOnlineMode = ref(false)
   const onlineGameState = ref<any>(null)
+  // 联机模式：自己的座位号（seatIndex）
+  const myPlayerId = ref<number>(0)
 
   const pendingModal = ref<GameEvent | null>(null)
   const showTurnHandoff = ref(false)
@@ -42,17 +44,33 @@ export const useGameStore = defineStore('game', () => {
 
   const isCurrentPlayerAI = computed(() => currentPlayer.value?.isAI ?? false)
 
+  // 联机模式：是否轮到我操作
+  const isMyTurn = computed(() => {
+    if (!isOnlineMode.value) return true // 单机模式总是返回 true（由 canRollDice 进一步控制）
+    return state.value.currentPlayerIndex === myPlayerId.value && state.value.phase !== 'ended'
+  })
+
   const canRollDice = computed(() => {
+    if (isOnlineMode.value) {
+      // 联机模式：只有轮到自己且无弹窗时可掷骰
+      return isMyTurn.value && !pendingModal.value && (state.value.phase === 'idle' || state.value.phase === 'event')
+    }
     const p = currentPlayer.value
     return p && !p.isAI && !p.bankrupt && !pendingModal.value && (state.value.phase === 'idle' || state.value.phase === 'event')
   })
 
   const canManageAssets = computed(() => {
+    if (isOnlineMode.value) {
+      return isMyTurn.value && !pendingModal.value
+    }
     const p = currentPlayer.value
     return p && !p.isAI && !p.bankrupt && state.value.phase === 'idle' && !pendingModal.value
   })
 
   const canSkipTurn = computed(() => {
+    if (isOnlineMode.value) {
+      return isMyTurn.value && !pendingModal.value
+    }
     const p = currentPlayer.value
     return p && !p.isAI && !p.bankrupt && !pendingModal.value && (state.value.phase === 'idle' || state.value.phase === 'event')
   })
@@ -63,6 +81,31 @@ export const useGameStore = defineStore('game', () => {
 
   function setOnlineGameState(gs: any) {
     onlineGameState.value = gs
+  }
+
+  function setMyPlayerId(id: number) {
+    myPlayerId.value = id
+  }
+
+  // 联机模式：应用服务端广播的完整游戏状态（覆盖本地 state）
+  function applyOnlineState(gs: any) {
+    if (!gs) return
+    state.value = JSON.parse(JSON.stringify(gs))
+    onlineGameState.value = gs
+    diceAnimating.value = false
+
+    // 根据服务端 pendingEvent 设置弹窗
+    const pe = gs.pendingEvent
+    if (pe) {
+      pendingModal.value = pe as GameEvent
+    } else {
+      pendingModal.value = null
+    }
+
+    // 胜利判定
+    if (gs.phase === 'ended' && gs.winner) {
+      showVictory.value = true
+    }
   }
 
   // 同步引擎状态（深拷贝确保 Vue 响应式更新）
@@ -89,6 +132,12 @@ export const useGameStore = defineStore('game', () => {
   // 掷骰子
   function rollDice() {
     if (!canRollDice.value) return
+    // 联机模式：发 action 到服务端，状态由 game:state 广播回来
+    if (isOnlineMode.value) {
+      diceAnimating.value = true
+      sendOnlineAction('roll')
+      return
+    }
     diceAnimating.value = true
 
     setTimeout(() => {
@@ -165,6 +214,10 @@ export const useGameStore = defineStore('game', () => {
   function buyProperty() {
     const event = pendingModal.value
     if (!event?.propertyId) return
+    if (isOnlineMode.value) {
+      sendOnlineAction('buy', { propertyId: event.propertyId })
+      return
+    }
     engine.buyProperty(event.propertyId)
     syncState()
     pendingModal.value = null
@@ -174,6 +227,10 @@ export const useGameStore = defineStore('game', () => {
 
   // 放弃购买
   function declineBuy() {
+    if (isOnlineMode.value) {
+      sendOnlineAction('declineBuy')
+      return
+    }
     engine.declineBuy()
     pendingModal.value = null
     endTurn()
@@ -181,6 +238,10 @@ export const useGameStore = defineStore('game', () => {
 
   // 传送/移动到目标
   function teleportTo(targetIndex: number) {
+    if (isOnlineMode.value) {
+      sendOnlineAction('teleportTo', { targetIndex })
+      return
+    }
     const event = engine.teleportTo(targetIndex)
     syncState()
     pendingModal.value = null
@@ -190,6 +251,10 @@ export const useGameStore = defineStore('game', () => {
 
   // 建房
   function buildHouse(propertyId: string) {
+    if (isOnlineMode.value) {
+      sendOnlineAction('build', { propertyId })
+      return true
+    }
     const ok = engine.buildHouse(propertyId)
     if (ok) syncState()
     return ok
@@ -197,6 +262,10 @@ export const useGameStore = defineStore('game', () => {
 
   // 拆房
   function sellBuilding(propertyId: string) {
+    if (isOnlineMode.value) {
+      sendOnlineAction('sellBuilding', { propertyId })
+      return true
+    }
     const ok = engine.sellBuilding(propertyId)
     if (ok) syncState()
     return ok
@@ -204,6 +273,10 @@ export const useGameStore = defineStore('game', () => {
 
   // 抵押
   function mortgage(propertyId: string) {
+    if (isOnlineMode.value) {
+      sendOnlineAction('mortgage', { propertyId })
+      return true
+    }
     const ok = engine.mortgage(propertyId)
     if (ok) syncState()
     return ok
@@ -211,6 +284,10 @@ export const useGameStore = defineStore('game', () => {
 
   // 赎回
   function redeem(propertyId: string) {
+    if (isOnlineMode.value) {
+      sendOnlineAction('redeem', { propertyId })
+      return true
+    }
     const ok = engine.redeem(propertyId)
     if (ok) syncState()
     return ok
@@ -218,6 +295,10 @@ export const useGameStore = defineStore('game', () => {
 
   // 玩家间交易：买地皮
   function buyPropertyFromPlayer(propertyId: string, buyerId: number, sellerId: number) {
+    if (isOnlineMode.value) {
+      sendOnlineAction('buyPropertyFromPlayer', { propertyId, sellerId })
+      return true
+    }
     const ok = engine.buyPropertyFromPlayer(propertyId, buyerId, sellerId)
     if (ok) syncState()
     return ok
@@ -225,6 +306,10 @@ export const useGameStore = defineStore('game', () => {
 
   // 玩家间交易：买房屋
   function buyBuildingFromPlayer(propertyId: string, buyerId: number, sellerId: number) {
+    if (isOnlineMode.value) {
+      sendOnlineAction('buyBuildingFromPlayer', { propertyId, sellerId })
+      return true
+    }
     const ok = engine.buyBuildingFromPlayer(propertyId, buyerId, sellerId)
     if (ok) syncState()
     return ok
@@ -232,6 +317,10 @@ export const useGameStore = defineStore('game', () => {
 
   // 玩家间交易：租房
   function payRentToPlayer(propertyId: string, visitorId: number, ownerId: number) {
+    if (isOnlineMode.value) {
+      sendOnlineAction('payRent', { propertyId, ownerId })
+      return true
+    }
     const ok = engine.payRentToPlayer(propertyId, visitorId, ownerId)
     if (ok) syncState()
     return ok
@@ -250,6 +339,10 @@ export const useGameStore = defineStore('game', () => {
 
   // 兑换美食卡
   function redeemFood(option: RedeemOption) {
+    if (isOnlineMode.value) {
+      sendOnlineAction('redeemFood', { option })
+      return true
+    }
     const ok = engine.redeemFood(option)
     if (ok) syncState()
     return ok
@@ -257,6 +350,10 @@ export const useGameStore = defineStore('game', () => {
 
   // 结束回合
   function endTurn() {
+    if (isOnlineMode.value) {
+      sendOnlineAction('endTurn')
+      return
+    }
     if (state.value.phase === 'ended') {
       showVictory.value = true
       return
@@ -285,6 +382,10 @@ export const useGameStore = defineStore('game', () => {
 
   // 放弃本轮（跳过当前回合，状态不变）
   function skipTurn() {
+    if (isOnlineMode.value) {
+      sendOnlineAction('endTurn')
+      return
+    }
     const p = currentPlayer.value
     if (!p || p.isAI) return
     if (state.value.phase === 'ended') {
@@ -615,6 +716,10 @@ export const useGameStore = defineStore('game', () => {
 
   /** 购买装备 */
   function buyEquipment(equipId: string, soldAtPropertyId: string, boundPropertyId: string | null) {
+    if (isOnlineMode.value) {
+      sendOnlineAction('buyEquipment', { equipId, soldAtPropertyId, boundPropertyId })
+      return true
+    }
     const ok = engine.buyEquipment(equipId, soldAtPropertyId, boundPropertyId)
     if (ok) syncState()
     return ok
@@ -622,6 +727,10 @@ export const useGameStore = defineStore('game', () => {
 
   /** 拆卸装备 */
   function unequip(equipId: string) {
+    if (isOnlineMode.value) {
+      sendOnlineAction('unequip', { equipId })
+      return true
+    }
     const ok = engine.unequip(equipId)
     if (ok) syncState()
     return ok
@@ -629,6 +738,10 @@ export const useGameStore = defineStore('game', () => {
 
   /** 建造/升级养殖场 */
   function buildAquaculture(propertyId: string) {
+    if (isOnlineMode.value) {
+      sendOnlineAction('buildAquaculture', { propertyId })
+      return true
+    }
     const ok = engine.buildAquaculture(propertyId)
     if (ok) syncState()
     return ok
@@ -636,6 +749,10 @@ export const useGameStore = defineStore('game', () => {
 
   /** 拆除养殖场 */
   function demolishAquaculture(propertyId: string) {
+    if (isOnlineMode.value) {
+      sendOnlineAction('demolishAquaculture', { propertyId })
+      return true
+    }
     const ok = engine.demolishAquaculture(propertyId)
     if (ok) syncState()
     return ok
@@ -643,6 +760,10 @@ export const useGameStore = defineStore('game', () => {
 
   /** 投资核电/风电 */
   function investNuclear(projectId: string) {
+    if (isOnlineMode.value) {
+      sendOnlineAction('investNuclear', { projectId })
+      return true
+    }
     const ok = engine.investNuclear(projectId)
     if (ok) syncState()
     return ok
@@ -651,6 +772,10 @@ export const useGameStore = defineStore('game', () => {
   /** 使用重掷券 */
   function useReRollTicket() {
     if (!canUseReRollTicket.value) return false
+    if (isOnlineMode.value) {
+      sendOnlineAction('useReRollTicket')
+      return true
+    }
     const ok = engine.useReRollTicket()
     if (ok) syncState()
     return ok
@@ -663,6 +788,42 @@ export const useGameStore = defineStore('game', () => {
     return engine.estimatePlayerAssets(player)
   }
 
+  // ============ 联机模式：发送 action 到服务端 ============
+  // 联机模式下所有按钮点击都改为发 game:action，服务端处理后广播 game:state
+  async function sendOnlineAction(action: string, params: any = {}) {
+    const { onlineSDK } = await import('@/online/onlineSdk.js')
+    return onlineSDK.sendGameAction(action, params)
+  }
+
+  // 联机版掷骰
+  function onlineRollDice() {
+    if (!canRollDice.value) return
+    diceAnimating.value = true
+    sendOnlineAction('roll')
+  }
+
+  // 联机版结束回合
+  function onlineEndTurn() {
+    sendOnlineAction('endTurn')
+  }
+
+  // 联机版购买地产
+  function onlineBuy() {
+    const event = pendingModal.value
+    if (!event?.propertyId) return
+    sendOnlineAction('buy', { propertyId: event.propertyId })
+  }
+
+  // 联机版放弃购买
+  function onlineDeclineBuy() {
+    sendOnlineAction('declineBuy')
+  }
+
+  // 联机版传送/移动
+  function onlineTeleportTo(targetIndex: number) {
+    sendOnlineAction('teleportTo', { targetIndex })
+  }
+
   return {
     state,
     board,
@@ -670,6 +831,8 @@ export const useGameStore = defineStore('game', () => {
     colorGroups,
     isOnlineMode,
     onlineGameState,
+    myPlayerId,
+    isMyTurn,
     pendingModal,
     showTurnHandoff,
     showExitConfirm,
@@ -683,6 +846,14 @@ export const useGameStore = defineStore('game', () => {
     canSkipTurn,
     setOnlineMode,
     setOnlineGameState,
+    setMyPlayerId,
+    applyOnlineState,
+    sendOnlineAction,
+    onlineRollDice,
+    onlineEndTurn,
+    onlineBuy,
+    onlineDeclineBuy,
+    onlineTeleportTo,
     initGame,
     rollDice,
     buyProperty,

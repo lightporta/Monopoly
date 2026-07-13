@@ -1036,13 +1036,20 @@ export class Game {
     return true
   }
 
-  /** 玩家间租赁（付租金） */
+  /** 玩家间租赁（付租金） — 含免租券消耗（与自动收租逻辑一致） */
   payRentToPlayer(propertyId: string, visitorId: number, ownerId: number): boolean {
     const visitor = this.state.players.find(p => p.id === visitorId)
     const owner = this.state.players.find(p => p.id === ownerId)
     if (!visitor || !owner) return false
     const data = this.propertyManager.getPropertyData(propertyId)
     if (!data) return false
+
+    // 免租券优先消耗（与 payRent 自动收租一致）
+    if (visitor.freeRentTickets > 0) {
+      visitor.freeRentTickets -= 1
+      this.addLog(`${visitor.name} 使用免租券，免付 ${owner.name} 的 ${data.name} 租金`)
+      return true
+    }
 
     const rent = this.rentCalculator.calculate(propertyId, owner, visitor)
     if (rent <= 0) return false
