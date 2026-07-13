@@ -174,11 +174,22 @@ export const useGameStore = defineStore('game', () => {
       // ---- 四大海洋板块：回合开始结算（核电分红/风电塔/生态补贴）----
       engine.settleTurnStart()
       syncState()
+      // 分红/补贴可能触发资产胜利，若已结束则显示弹窗并中止
+      if (state.value.winner) {
+        diceAnimating.value = false
+        checkVictoryAfterEvent()
+        return
+      }
 
       const event = engine.rollDice()
       syncState()
       lastEventMessage.value = event.message
       diceAnimating.value = false
+      // 过起点奖励可能触发资产胜利
+      if (state.value.winner) {
+        checkVictoryAfterEvent()
+        return
+      }
 
       // 触发落格事件
       const cellEvent = engine.handleCellEvent()
@@ -501,11 +512,22 @@ export const useGameStore = defineStore('game', () => {
       // ---- 四大海洋板块：回合开始结算 ----
       engine.settleTurnStart()
       syncState()
+      // 分红/补贴可能触发资产胜利
+      if (state.value.winner) {
+        diceAnimating.value = false
+        checkVictoryAfterEvent()
+        return
+      }
 
       const event = engine.rollDice()
       syncState()
       lastEventMessage.value = event.message
       diceAnimating.value = false
+      // 过起点奖励可能触发资产胜利
+      if (state.value.winner) {
+        checkVictoryAfterEvent()
+        return
+      }
 
       const cellEvent = engine.handleCellEvent()
       syncState()
@@ -624,14 +646,17 @@ export const useGameStore = defineStore('game', () => {
       const aiPlayer = currentPlayer.value
       if (aiPlayer && event.propertyId && event.ownerId) {
         const ai = engine.getAIPlayer(aiPlayer.aiLevel ?? 'normal')
-        // 概率分档：easy 基本只租房；hard 更倾向抄底买地皮
         const w = ai.getLandOpponentWeights()
         const rent = engine.getRentPrice(event.propertyId, event.ownerId, aiPlayer.id)
         const prop = properties.value.find(p => p.id === event.propertyId)
         const level = getBuildingLevel(event.propertyId, event.ownerId)
         const buyPrice = prop ? prop.price + prop.buildCost * level : 0
         const roll = Math.random()
-        if (roll < w.buyLand && aiPlayer.cash >= buyPrice + 2000) {
+        // hard 模式额外用 ROI 评估买地皮是否划算；easy/normal 仅按概率
+        const shouldBuyLand = ai.getLevel() === 'hard' && prop
+          ? ai.evaluateLandPurchase(prop, buyPrice, aiPlayer)
+          : (roll < w.buyLand && aiPlayer.cash >= buyPrice + 2000)
+        if (shouldBuyLand) {
           // 买地皮
           engine.buyPropertyFromPlayer(event.propertyId, aiPlayer.id, event.ownerId)
           syncState()

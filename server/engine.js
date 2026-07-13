@@ -118,6 +118,9 @@ export class GameEngine {
       }
       this.state.ecology.turnsSinceLastEcoCard = 0;
     }
+
+    // 资产胜利是独立条件，分红/补贴/被动收入增加资产后需检查
+    this.checkAllVictory();
   }
 
   getEcologyTier() {
@@ -173,6 +176,9 @@ export class GameEngine {
     if (!isDouble && this.state.phase !== 'ended') {
       this.nextTurn();
     }
+
+    // V3.4：过起点奖励/养殖收益/收租/卡牌都可能触发资产胜利，统一检查
+    this.checkAllVictory();
 
     return { state: this.getState(), dice: [d1, d2], isDouble, event };
   }
@@ -645,6 +651,8 @@ export class GameEngine {
     this.state.pendingEvent = null;
     this.addLog(`${visitor.name} 向 ${owner.name} 支付 ${prop.name} 租金 ¥${rent}`);
     if (visitor.cash < 0) this.checkBankruptcy(visitorIndex);
+    // 收租方资产增加，可能触发资产胜利
+    this.checkAllVictory();
     return { state: this.getState() };
   }
 
@@ -672,6 +680,8 @@ export class GameEngine {
     if (option === 'cash') {
       player.cash += 2000;
       this.addLog(`${player.name} 兑换美食组合，获得 ¥2000`);
+      // 兑换现金增加资产，可能触发资产胜利
+      this.checkAllVictory();
     } else {
       player.freeRentTickets += 1;
       this.addLog(`${player.name} 兑换美食组合，获得 1 张免租券`);
@@ -813,39 +823,62 @@ export class GameEngine {
     }
   }
 
-  checkIronTriangle(playerIndex) {
+  /**
+   * 统一胜利检查（V3.4 三条独立条件，遍历所有存活玩家，任意达成即胜）：
+   *   1. 破产胜利  2. 仙境铁三角（三地标+各地标≥3级房屋）  3. 资产胜利（>30000）
+   * 优先级：破产 > 铁三角 > 资产。在所有资产/所有权变化后调用。
+   */
+  checkAllVictory() {
     if (this.state.winner) return;
-    const player = this.state.players[playerIndex];
+    const alive = this.state.players.filter(p => !p.bankrupt);
+
+    // 1. 破产胜利
+    if (alive.length === 1) {
+      this.state.winner = alive[0];
+      this.state.winReason = '其他玩家全部破产';
+      this.state.phase = 'ended';
+      this.addLog(`🎉 ${alive[0].name} 获得胜利！${this.state.winReason}`);
+      return;
+    }
+
     const ironTriangle = gameConfig.victory.ironTriangle;
-    // 解析三地标 propertyId
     const requiredIds = ironTriangle
       .map(name => {
         const prop = Object.values(properties).find(p => p.name === name);
         return prop ? prop.id : null;
       })
       .filter(id => !!id);
-
-    // 条件1：拥有三处地标
-    const ownsAll = requiredIds.length > 0 && requiredIds.every(id => player.properties.includes(id));
-    if (!ownsAll) return;
-
-    // 条件2：各地标均建有房屋（>=1级）
-    if (gameConfig.victory.ironTriangleNeedHouses) {
-      const allBuilt = requiredIds.every(id => (player.buildings[id] || 0) >= 1);
-      if (!allBuilt) return;
-    }
-
-    // 条件3：总资产达标
+    const requiredLevel = gameConfig.victory.ironTriangleNeedHouses
+      ? (gameConfig.victory.ironTriangleHouseLevel ?? 1)
+      : 0;
     const minAssets = gameConfig.victory.ironTriangleMinAssets ?? 0;
-    if (minAssets > 0) {
-      const total = this.estimatePlayerAssets(player);
-      if (total <= minAssets) return;
-    }
 
-    this.state.winner = player;
-    this.state.winReason = '仙境铁三角：集齐烟台山 + 蓬莱阁 + 养马岛（均有房屋且资产超过 30000）';
-    this.state.phase = 'ended';
-    this.addLog(`🎉 ${player.name} 获得胜利！${this.state.winReason}`);
+    // 2 & 3. 遍历存活玩家查铁三角与资产
+    for (const player of alive) {
+      // 铁三角：拥有三地标 + 各地标建筑等级达标
+      if (requiredIds.length > 0 && requiredIds.every(id => player.properties.includes(id))) {
+        if (requiredLevel === 0 || requiredIds.every(id => (player.buildings[id] || 0) >= requiredLevel)) {
+          this.state.winner = player;
+          this.state.winReason = '仙境铁三角：集齐烟台山+蓬莱阁+养马岛，各地标均建有3座房屋';
+          this.state.phase = 'ended';
+          this.addLog(`🎉 ${player.name} 获得胜利！${this.state.winReason}`);
+          return;
+        }
+      }
+      // 资产胜利（独立条件）
+      if (minAssets > 0 && this.estimatePlayerAssets(player) > minAssets) {
+        this.state.winner = player;
+        this.state.winReason = `总资产突破 ${minAssets}`;
+        this.state.phase = 'ended';
+        this.addLog(`🎉 ${player.name} 获得胜利！${this.state.winReason}`);
+        return;
+      }
+    }
+  }
+
+  checkIronTriangle(playerIndex) {
+    // 兼容旧调用点：统一走 checkAllVictory
+    this.checkAllVictory();
   }
 
   /** 估算玩家总资产（含四大板块估值），与前端 estimatePlayerAssets 口径一致 */
@@ -883,15 +916,8 @@ export class GameEngine {
   }
 
   checkVictory() {
-    if (this.state.winner) return;
-    // 破产胜利优先于铁三角
-    const alive = this.state.players.filter(p => !p.bankrupt);
-    if (alive.length === 1) {
-      this.state.winner = alive[0];
-      this.state.winReason = '其他玩家全部破产';
-      this.state.phase = 'ended';
-      this.addLog(`🎉 ${alive[0].name} 获得胜利！${this.state.winReason}`);
-    }
+    // V3.4：统一走三条件检查（破产/铁三角/资产）
+    this.checkAllVictory();
   }
 
   nextTurn() {

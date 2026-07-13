@@ -34,6 +34,7 @@
   "victory": {
     "ironTriangle": ["烟台山", "蓬莱阁", "养马岛"],
     "ironTriangleNeedHouses": true,
+    "ironTriangleHouseLevel": 3,
     "ironTriangleMinAssets": 30000
   },
   "ecology": {

@@ -310,6 +310,7 @@ export interface GameConfig {
   victory: {
     ironTriangle: string[]
     ironTriangleNeedHouses: boolean
+    ironTriangleHouseLevel: number
     ironTriangleMinAssets: number
   }
   ecology: {

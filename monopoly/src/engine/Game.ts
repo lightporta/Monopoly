@@ -296,6 +296,8 @@ export class Game {
       }${aquaLog}`
     }
     this.addLog(event.message)
+    // 过起点奖励/养殖收益增加资产，可能触发资产胜利
+    this.checkVictory()
     return event
   }
 
@@ -573,6 +575,8 @@ export class Game {
       message
     }
     this.addLog(message)
+    // 收租方资产增加，可能触发资产胜利
+    this.checkVictory()
     return event
   }
 
@@ -694,6 +698,9 @@ export class Game {
         // Demo 版暂不实现非现金效果
         break
     }
+
+    // 卡牌现金效果改变资产，可能触发资产胜利
+    if (effect.action === 'cash') this.checkVictory()
 
     // ---- 四大板块：生态卡处理 ----
     if (card.category === 'ecology') {
@@ -1071,6 +1078,8 @@ export class Game {
     owner.cash += rent
 
     this.addLog(`${visitor.name} 向 ${owner.name} 支付 ${data.name} 租金 ${rent}`)
+    // 收租方资产增加，可能触发资产胜利
+    this.checkVictory()
     return true
   }
 
@@ -1082,6 +1091,8 @@ export class Game {
     if (ok) {
       if (option === 'cash') {
         this.addLog(`${player.name} 兑换美食组合，获得 2000 现金`)
+        // 兑换现金增加资产，可能触发资产胜利
+        this.checkVictory()
       } else {
         this.addLog(`${player.name} 兑换美食组合，获得 1 张免租券`)
       }
@@ -1159,6 +1170,9 @@ export class Game {
       logs.push(msg)
       this.addLog(msg)
     }
+
+    // 资产胜利是独立条件，分红/补贴/被动收入增加资产后需检查
+    this.checkVictory()
 
     return logs
   }
@@ -1361,45 +1375,39 @@ export class Game {
   // ---------- 胜利判定 ----------
 
   /**
-   * 检查胜利条件。优先级：破产胜利 > 仙境铁三角胜利。
-   * - 破产胜利：仅剩 1 名非破产玩家。
-   * - 铁三角胜利：拥有烟台山+蓬莱阁+养马岛，各地标建有房屋，且总资产 > 30000。
+   * 检查胜利条件（V3.4 三条独立条件，任意达成即胜）：
+   *   1. 破产胜利：仅剩 1 名非破产玩家
+   *   2. 仙境铁三角：拥有三地标且各地标建筑等级≥3
+   *   3. 资产胜利：任一玩家总资产 > 30000
+   * 遍历所有存活玩家判定。优先级：破产 > 铁三角 > 资产。
    */
   private checkVictory(): void {
     if (this.state.phase === 'ended') return
 
-    // 1. 破产胜利优先
-    const survivor = this.victoryChecker.checkBankruptcy(this.state.players)
-    if (survivor) {
-      this.state.winner = survivor
-      this.state.winReason = '其他玩家全部破产'
-      this.state.phase = 'ended'
-      const event: GameEvent = {
-        type: 'victory',
-        playerId: survivor.id,
-        cellIndex: survivor.position,
-        message: `${survivor.name} 成为最后存活的玩家，获得胜利！`
-      }
-      this.addLog(event.message)
-      this.state.pendingEvent = event
-      return
-    }
+    const result = this.victoryChecker.checkVictory(
+      this.state.players,
+      (p) => this.estimatePlayerAssets(p).total
+    )
+    if (!result) return
 
-    // 2. 铁三角胜利（需房屋 + 资产达标）
-    const player = this.currentPlayer()
-    if (player && this.victoryChecker.checkIronTriangle(player, (p) => this.estimatePlayerAssets(p).total)) {
-      this.state.winner = player
-      this.state.winReason = '仙境铁三角：集齐烟台山 + 蓬莱阁 + 养马岛（均有房屋且资产超过 30000）'
-      this.state.phase = 'ended'
-      const event: GameEvent = {
-        type: 'victory',
-        playerId: player.id,
-        cellIndex: player.position,
-        message: `${player.name} 集齐仙境铁三角，获得胜利！`
-      }
-      this.addLog(event.message)
-      this.state.pendingEvent = event
+    const reasonText =
+      result.reason === 'bankruptcy'
+        ? '其他玩家全部破产'
+        : result.reason === 'ironTriangle'
+          ? '仙境铁三角：集齐烟台山+蓬莱阁+养马岛，各地标均建有3座房屋'
+          : '总资产突破 30000'
+
+    this.state.winner = result.winner
+    this.state.winReason = reasonText
+    this.state.phase = 'ended'
+    const event: GameEvent = {
+      type: 'victory',
+      playerId: result.winner.id,
+      cellIndex: result.winner.position,
+      message: result.message
     }
+    this.addLog(event.message)
+    this.state.pendingEvent = event
   }
 
   // ---------- AI 辅助 ----------
