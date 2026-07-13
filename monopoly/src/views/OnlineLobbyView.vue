@@ -61,8 +61,8 @@ async function handleCreate() {
     const wsUrl = import.meta.env.VITE_WS_URL || `ws://${window.location.host}/ws`
     await onlineSDK.connect(wsUrl)
     onlineSDK.createRoom(roomKey.value.trim().toUpperCase(), playerName.value.trim())
-  } catch (e) {
-    errorMsg.value = '连接服务器失败，请稍后重试'
+  } catch (e: any) {
+    errorMsg.value = e?.message || '连接服务器失败，请检查网络'
     isConnecting.value = false
   }
 }
@@ -89,8 +89,8 @@ async function handleJoin() {
     const wsUrl = import.meta.env.VITE_WS_URL || `ws://${window.location.host}/ws`
     await onlineSDK.connect(wsUrl)
     onlineSDK.joinRoom(roomKey.value.trim(), playerName.value.trim())
-  } catch (e) {
-    errorMsg.value = '连接服务器失败，请稍后重试'
+  } catch (e: any) {
+    errorMsg.value = e?.message || '连接服务器失败，请检查网络'
     isConnecting.value = false
   }
 }

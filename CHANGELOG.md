@@ -1,5 +1,30 @@
 # 更新日志
 
+## v3.1.0 - 联机bug修复 + 移动端重构 + 文档清理（2026-07-13）
+
+### 联机 bug 根本性修复
+- **服务端 data.js 完全重写**：与前端 board.json/properties.json 完全一致（消除 propertyRef 命名/格子布局/地产数量的历史分叉）
+- **服务端 engine.js 完全重写**：移植四大海洋板块（装备/养殖/投资/生态）+ 玩家间交易 + 重掷券 + 破产清算含四板块清零
+- **前端联机状态同步**：gameStore 增加 myPlayerId/isMyTurn/applyOnlineState，所有 action 在联机模式自动路由到 sendOnlineAction
+- **前端 GameView**：监听 game:state 广播覆盖本地状态，联机按钮可点击
+- **联机 SDK connect 修复**：增加 5 秒超时 + onclose reject，连接失败不再永久卡在"连接中"
+- **错误提示优化**：连接失败显示具体原因而非通用提示
+
+### 移动端布局重构
+- 移除移动端抽屉机制，改为：棋盘 → 骰子 → 按钮一排 → 状态日志（可滚动）
+- 掷骰/资产/美食/投资核电并列一排，重掷/放弃第二排
+- 棋盘自适应剩余空间
+
+### 美食免租券 bug 修复
+- Game.payRentToPlayer：增加免租券消耗分支（与 payRent 自动收租一致）
+
+### 文档清理
+- 删除旧版 V1 文档（.trae/documents/、docs/design/game-design.md、game-rules.md）
+- 新建运维总览 docs/operations-guide.md（服务器管理一站式手册）
+- README 文档索引更新
+
+---
+
 ## v3.0.0 - 四大海洋板块 + UI 优化（2026-07-13）
 
 ### 新增功能 — 四大海洋板块（不破坏原玩法）

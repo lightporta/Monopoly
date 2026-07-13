@@ -27,9 +27,32 @@ class OnlineSDK {
 
   connect(url) {
     return new Promise((resolve, reject) => {
+      // 先清理旧连接
+      this._stopHeartbeat();
+      if (this.ws) {
+        try { this.ws.onclose = null; this.ws.close(); } catch (e) {}
+        this.ws = null;
+      }
+
+      let settled = false;
       try {
         this.ws = new WebSocket(url);
+
+        // 连接超时：5 秒未连上则拒绝
+        const timeout = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            this._log('连接超时');
+            try { this.ws.close(); } catch (e) {}
+            this.ws = null;
+            reject(new Error('连接超时，请检查网络或服务器是否运行'));
+          }
+        }, 5000);
+
         this.ws.onopen = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
           this._log('连接成功');
           this.reconnectAttempts = 0;
           this._startHeartbeat();
@@ -45,14 +68,28 @@ class OnlineSDK {
         };
         this.ws.onerror = (err) => {
           this._log('连接错误', err);
+          // onerror 后通常会触发 onclose，由 onclose 统一 reject
         };
         this.ws.onclose = () => {
           this._log('连接关闭');
           this._stopHeartbeat();
+          if (!settled) {
+            // 连接还没建立就关闭了 = 连接失败
+            settled = true;
+            clearTimeout(timeout);
+            this.ws = null;
+            reject(new Error('连接被拒绝，服务器可能未运行或端口未开放'));
+            return;
+          }
+          // 已建立的连接断开
+          this.ws = null;
           this._emit('disconnect', {});
         };
       } catch (e) {
-        reject(e);
+        if (!settled) {
+          settled = true;
+          reject(e);
+        }
       }
     });
   }
