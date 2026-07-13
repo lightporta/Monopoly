@@ -221,18 +221,67 @@ ss -tlnp | grep :80
 # 控制台 → 轻量服务器 → 防火墙 → 确认 TCP 80 允许
 ```
 
-### 7.2 联机连接不上（一直"连接中"）
+### 7.2 联机连接不上（一直"连接中"或"服务器没连上"）
+
+**第一步：确认游戏在运行**
 
 ```bash
-# 1. 检查 WebSocket 服务是否正常
+pm2 status
+# 状态必须为 online，如果不是：
+pm2 restart monopoly
+```
+
+**第二步：确认 80 端口在监听**
+
+```bash
+ss -tlnp | grep :80
+# 必须显示 0.0.0.0:80 ... LISTEN
+# 如果没有任何输出，说明游戏没启动成功：
+PORT=80 pm2 start /opt/Monopoly/server/server.js --name "monopoly" --cwd /opt/Monopoly/server
+pm2 save
+```
+
+**第三步：确认服务端代码是最新版**
+
+```bash
+cd /opt/Monopoly
+git log --oneline -3
+# 应该看到最近几次提交（b263f30 或更新）
+# 如果不是最新的：
+git pull origin main
+cd server && npm install
+pm2 restart monopoly
+```
+
+**第四步：测试 WebSocket 连通性**
+
+```bash
+# 服务器内部测试
 wscat -c ws://localhost:80/ws
 # 应显示 connected
 
-# 2. 检查服务端是否崩溃
-pm2 logs monopoly --err --lines 20
+# 外部测试（公网 IP）
+wscat -c ws://140.143.242.241:80/ws
+# 应显示 connected
+```
 
-# 3. 如果崩溃了，重启
-pm2 restart monopoly
+**第五步：检查腾讯云防火墙**
+
+- 腾讯云控制台 → 轻量服务器 → 防火墙
+- 确认有规则：**TCP 80 允许**
+- 如果没有，添加规则
+
+**第六步：检查浏览器地址栏**
+
+- 访问地址必须是 `http://140.143.242.241`（**http**，不是 https）
+- 如果浏览器自动跳转 https，会显示"连接被拒绝"
+- 用无痕窗口或手动输入 `http://` 开头
+
+**第七步：查看服务端报错**
+
+```bash
+pm2 logs monopoly --err --lines 30
+# 如果有红色错误，通常是代码问题，需要更新代码
 ```
 
 ### 7.3 服务崩溃后自动恢复

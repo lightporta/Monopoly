@@ -192,25 +192,28 @@ onUnmounted(() => {
   box-sizing: border-box;
 }
 
-/* ============ 移动端布局：棋盘 → 按钮 → 状态日志 ============ */
+/* ============ 移动端布局：5 个板块自然流式排列，整页可上下滚动 ============ */
+/* 棋盘 → 骰子 → 按钮 → 玩家状态+日志，各板块不重叠，日志内部也可滚动 */
 .mobile-layout {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
+  /* 关键：整页可滚动，不裁剪 */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 4px;
+  gap: 6px;
 }
 
+/* 板块 1：棋盘（按宽度自适应方形） */
 .mobile-board {
-  flex-shrink: 1;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 0;
-  overflow: hidden;
 }
 
+/* 板块 2：骰子 */
 .mobile-dice {
   flex-shrink: 0;
   display: flex;
@@ -218,21 +221,21 @@ onUnmounted(() => {
   padding: 2px 0;
 }
 
+/* 板块 3：主操作按钮一排 */
 .mobile-actions {
   display: flex;
   gap: 6px;
-  padding: 6px 6px;
-  background: rgba(255, 255, 255, 0.85);
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(8px);
   border-radius: 12px;
-  margin: 4px 0;
   flex-shrink: 0;
 }
 
 .mobile-extras {
   display: flex;
   gap: 6px;
-  padding: 0 6px 4px;
+  padding: 0 6px;
   flex-shrink: 0;
 }
 
@@ -284,14 +287,23 @@ onUnmounted(() => {
   border: none;
 }
 
+/* 板块 4：玩家状态 + 日志（内部可滚动，类似电脑端） */
 .mobile-status {
-  flex: 1;
-  overflow-y: auto;
-  min-height: 0;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+}
+
+/* 移动端：解除 game-view 的 overflow 限制，让整页可滚动 */
+@media (max-width: 767px) {
+  .game-view {
+    height: auto;
+    min-height: 100dvh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 .game-main {
