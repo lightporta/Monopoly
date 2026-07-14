@@ -31,6 +31,11 @@ export const useGameStore = defineStore('game', () => {
   const pendingModal = ref<GameEvent | null>(null)
   const showTurnHandoff = ref(false)
   const showExitConfirm = ref(false)
+  // 交易设备交接：真人玩家买真人玩家资产时，先交接设备给被购买方确认
+  const showTradeHandoff = ref(false)
+  const showTradeConfirm = ref(false)
+  const tradeTargetId = ref<number>(-1)   // 被购买方玩家 id（交接设备的目标）
+  const activeTradeData = ref<any>(null)  // 当前交易详情（type/propertyId/buyerId/sellerId/price 等）
   const showVictory = ref(false)
   const diceAnimating = ref(false)
   const lastEventMessage = ref('')
@@ -493,6 +498,25 @@ export const useGameStore = defineStore('game', () => {
     showTurnHandoff.value = false
   }
 
+  // ===== 交易设备交接（真人买真人资产）=====
+  /** 发起交易交接：把设备交给被购买方确认 */
+  function startTradeHandoff(targetPlayerId: number, trade: any) {
+    tradeTargetId.value = targetPlayerId
+    activeTradeData.value = trade
+    showTradeHandoff.value = true
+  }
+  /** 被购买方点"已准备好"，进入交易确认弹窗 */
+  function confirmTradeHandoff() {
+    showTradeHandoff.value = false
+    showTradeConfirm.value = true
+  }
+  /** 交易确认弹窗关闭（同意/拒绝后） */
+  function closeTradeConfirm() {
+    showTradeConfirm.value = false
+    activeTradeData.value = null
+    tradeTargetId.value = -1
+  }
+
   function requestExit() {
     showExitConfirm.value = true
   }
@@ -939,6 +963,10 @@ export const useGameStore = defineStore('game', () => {
     showPlayerLeftNotice,
     pendingModal,
     showTurnHandoff,
+    showTradeHandoff,
+    showTradeConfirm,
+    tradeTargetId,
+    activeTradeData,
     showExitConfirm,
     showVictory,
     diceAnimating,
@@ -983,6 +1011,9 @@ export const useGameStore = defineStore('game', () => {
     endTurn,
     skipTurn,
     confirmTurnHandoff,
+    startTradeHandoff,
+    confirmTradeHandoff,
+    closeTradeConfirm,
     requestExit,
     cancelExit,
     clearPendingEvent,

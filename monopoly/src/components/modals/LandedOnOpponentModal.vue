@@ -86,16 +86,35 @@ function initTrade(type: 'buyProperty' | 'buyBuilding' | 'rent') {
     price
   }
 
-  // 买家不需看到同意/不同意弹窗，只显示等待状态，然后显示结果
-  showWaiting.value = true
   const owner = store.state.players.find(p => p.id === event.ownerId)
-  // AI 玩家 70% 概率同意，真人玩家也自动决定（80%同意）
-  const acceptRate = owner?.isAI ? 0.7 : 0.8
-  const accept = Math.random() < acceptRate
-  setTimeout(() => {
-    showWaiting.value = false
-    handleTradeResult(accept)
-  }, 1200)
+
+  // 租房：落敌地产付租是强制的，直接执行，无需对方确认
+  if (type === 'rent') {
+    handleTradeResult(true)
+    return
+  }
+
+  // 联机模式：发 action 到服务端，由服务端推送确认给被购买方
+  if (store.isOnlineMode) {
+    const action = type === 'buyProperty' ? 'buyPropertyFromPlayer' : 'buyBuildingFromPlayer'
+    store.sendOnlineAction(action, { propertyId: event.propertyId, sellerId: event.ownerId })
+    return
+  }
+
+  // AI 被购买方：70% 概率自动同意（AI 自动决策）
+  if (owner?.isAI) {
+    showWaiting.value = true
+    const accept = Math.random() < 0.7
+    setTimeout(() => {
+      showWaiting.value = false
+      handleTradeResult(accept)
+    }, 1200)
+    return
+  }
+
+  // 真人被购买方（同设备 pvp/pve）：设备交接 → 确认弹窗
+  // 先关闭当前落对手地产弹窗，发起设备交接给被购买方
+  store.startTradeHandoff(owner!.id, tradeData.value)
 }
 
 function handleTradeResult(accepted: boolean) {

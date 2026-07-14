@@ -1,5 +1,25 @@
 # 更新日志
 
+## v3.7.0 - 交易设备交接 + 文档升级 V3.7（2026-07-14）
+
+### 新增：交易设备交接流程（真人买真人资产）
+- **GameView.vue**：新增"设备交接"覆盖层 + TradeConfirmModal 弹窗，真人玩家买真人资产时先把设备交给被购买方，由被购买方点同意/拒绝
+- **gameStore.ts**：新增 `showTradeHandoff` / `showTradeConfirm` / `tradeTargetId` / `activeTradeData` 状态，及 `startTradeHandoff` / `confirmTradeHandoff` / `closeTradeConfirm` 方法
+- **LandedOnOpponentModal.vue**：`initTrade` 区分三种流程——租房直接执行、联机模式发 action、AI 自动决策、真人走设备交接
+- **CardModal.vue**：联机模式确认时补发 `endTurn`，回合切换由服务端统一处理
+- **server/engine.js**：在 `buyProperty`/`declineProperty`/`buyPropertyFromPlayer`/`buyBuildingFromPlayer`/`payRent`/`movePlayer` 完成后补 `endTurn` 调用，与单机一致
+
+### 文档升级到 V3.7
+- PRD/game-design/TechnicalArchitecture 升级到 v3.7（旧 v3.6 删除）
+- 修正所有内部 V3.6 版本引用与跨文档链接
+- README 文档索引更新
+
+### 构建同步
+- `npm run build` 通过 `vue-tsc --noEmit` 类型检查
+- dist/index.html 350KB（gzip 105KB）
+
+---
+
 ## v3.6.0 - 联机回合流转彻底修复 + 移动端退出逻辑（2026-07-14）
 
 ### 联机回合三个根因修复

@@ -19,6 +19,7 @@ import TurnHandoffModal from '@/components/modals/TurnHandoffModal.vue'
 import ExitConfirmModal from '@/components/modals/ExitConfirmModal.vue'
 import VictoryModal from '@/components/modals/VictoryModal.vue'
 import LandedOnOpponentModal from '@/components/modals/LandedOnOpponentModal.vue'
+import TradeConfirmModal from '@/components/modals/TradeConfirmModal.vue'
 import EquipmentModal from '@/components/modals/EquipmentModal.vue'
 import AquacultureModal from '@/components/modals/AquacultureModal.vue'
 import InvestModal from '@/components/modals/InvestModal.vue'
@@ -54,6 +55,31 @@ const waitingForPlayer = computed(() => {
   const p = store.state.players.find(pl => pl.id === pid) || store.state.players[pid]
   return p ? p.name : null
 })
+
+// 交易设备交接：被购买方玩家信息
+const tradeHandoffPlayer = computed(() => {
+  const id = store.tradeTargetId
+  if (id < 0) return null
+  return store.state.players.find(p => p.id === id) ?? null
+})
+
+// 交易确认结果处理（被购买方点同意/拒绝后）
+function onTradeResolved(accepted: boolean) {
+  const trade = store.activeTradeData
+  store.closeTradeConfirm()
+  if (!trade) return
+  if (accepted) {
+    // 同意：执行交易（单机引擎）
+    if (trade.type === 'buyProperty') {
+      store.buyPropertyFromPlayer(trade.propertyId, trade.buyerId, trade.ownerId)
+    } else if (trade.type === 'buyBuilding') {
+      store.buyBuildingFromPlayer(trade.propertyId, trade.buyerId, trade.ownerId)
+    }
+  }
+  // 交易结束（无论同意/拒绝），清 pendingEvent 并结束回合，设备交回买家方
+  store.clearPendingEvent()
+  store.endTurn()
+}
 
 function checkMobile() {
   isMobile.value = window.innerWidth < 768
@@ -223,6 +249,31 @@ onUnmounted(() => {
     <TeleportSelectModal v-if="showTeleport" />
     <FoodRedeemModal v-model:show="showFoodRedeem" />
     <TurnHandoffModal v-if="store.showTurnHandoff" />
+    <!-- 交易设备交接：真人买真人资产时，把设备交给被购买方确认 -->
+    <div v-if="store.showTradeHandoff && tradeHandoffPlayer" class="trade-handoff-overlay">
+      <div class="trade-handoff-card" :style="{ '--accent': tradeHandoffPlayer.color }">
+        <div class="trade-handoff-ring" :style="{ background: tradeHandoffPlayer.color }">
+          <span class="trade-handoff-token">{{ tradeHandoffPlayer.token }}</span>
+        </div>
+        <p class="trade-handoff-tip">有玩家想购买你的资产，请将设备交给</p>
+        <h2 class="trade-handoff-name">{{ tradeHandoffPlayer.name }}</h2>
+        <button class="trade-handoff-btn" @click="store.confirmTradeHandoff()">我已准备好</button>
+      </div>
+    </div>
+    <!-- 交易确认弹窗（被购买方操作） -->
+    <TradeConfirmModal
+      v-if="store.showTradeConfirm && store.activeTradeData"
+      :show="store.showTradeConfirm"
+      :tradeType="store.activeTradeData.type"
+      :propertyId="store.activeTradeData.propertyId"
+      :propertyName="store.activeTradeData.propertyName"
+      :ownerId="store.activeTradeData.ownerId"
+      :ownerName="store.activeTradeData.ownerName"
+      :buyerId="store.activeTradeData.buyerId"
+      :buyerName="store.activeTradeData.buyerName"
+      :price="store.activeTradeData.price"
+      @resolved="onTradeResolved"
+    />
     <ExitConfirmModal v-if="store.showExitConfirm" />
     <VictoryModal v-if="store.showVictory" />
     <!-- 四大海洋板块弹窗 -->
@@ -579,4 +630,51 @@ onUnmounted(() => {
   border-radius: 14px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
+
+/* 交易设备交接弹窗（参考 TurnHandoffModal 风格） */
+.trade-handoff-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1150;
+  backdrop-filter: blur(6px);
+}
+.trade-handoff-card {
+  width: 300px;
+  max-width: calc(100vw - 32px);
+  background: #fff;
+  border-radius: 24px;
+  padding: 32px 24px;
+  text-align: center;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+}
+.trade-handoff-ring {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+  font-size: 36px;
+  box-shadow: 0 4px 12px var(--accent, #1E88E5);
+}
+.trade-handoff-tip { font-size: 14px; color: #666; margin: 0 0 4px; }
+.trade-handoff-name { font-size: 24px; font-weight: 800; color: #212121; margin: 0 0 20px; }
+.trade-handoff-btn {
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 9999px;
+  font-size: 16px;
+  font-weight: 700;
+  background: var(--accent, #1E88E5);
+  color: #fff;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+.trade-handoff-btn:hover { transform: translateY(-2px); }
 </style>

@@ -520,6 +520,8 @@ export class GameEngine {
     // 四板块：色块集齐奖励重掷券
     this.checkColorGroupReward(player, prop.colorGroup);
     this.checkIronTriangle(playerIndex);
+    // 购买完成，结束当前玩家回合（endTurn 内部处理双数重掷）
+    this.endTurn(playerIndex);
     return { state: this.getState() };
   }
 
@@ -541,6 +543,8 @@ export class GameEngine {
     this.state.pendingEvent = null;
     this.state.phase = 'idle';
     this.addLog(`${this.state.players[playerIndex].name} 放弃购买`);
+    // 放弃购买，结束回合
+    this.endTurn(playerIndex);
     return { state: this.getState() };
   }
 
@@ -621,6 +625,8 @@ export class GameEngine {
     this.addLog(`${buyer.name} 以 ¥${totalPrice} 向 ${seller.name} 购买 ${prop.name}`);
     this.checkColorGroupReward(buyer, prop.colorGroup);
     this.checkIronTriangle(buyerIndex);
+    // 交易完成，结束回合
+    this.endTurn(buyerIndex);
     return { state: this.getState() };
   }
 
@@ -641,6 +647,8 @@ export class GameEngine {
     this.state.pendingEvent = null;
     this.state.phase = 'idle';
     this.addLog(`${buyer.name} 以 ¥${buildingPrice} 购买 ${prop.name} 上的${level}级建筑`);
+    // 交易完成，结束回合
+    this.endTurn(buyerIndex);
     return { state: this.getState() };
   }
 
@@ -655,8 +663,10 @@ export class GameEngine {
     if (visitor.freeRentTickets > 0) {
       visitor.freeRentTickets--;
       this.state.pendingEvent = null;
-    this.state.phase = 'idle';
+      this.state.phase = 'idle';
       this.addLog(`${visitor.name} 使用免租券，免付 ${owner.name} 的租金`);
+      // 付租完成，结束回合
+      this.endTurn(visitorIndex);
       return { state: this.getState() };
     }
     const rent = this.calculateRent(propId, ownerIndex);
@@ -669,6 +679,8 @@ export class GameEngine {
     if (visitor.cash < 0) this.checkBankruptcy(visitorIndex);
     // 收租方资产增加，可能触发资产胜利
     this.checkAllVictory();
+    // 付租完成，结束回合
+    this.endTurn(visitorIndex);
     return { state: this.getState() };
   }
 
@@ -681,6 +693,10 @@ export class GameEngine {
     this.state.phase = 'idle';
     this.addLog(`${player.name} 移动至 ${board[targetIndex].name}`);
     const event = this.handleCellLanding(playerIndex, board[targetIndex]);
+    // 若落格产生新的待处理交互事件，等玩家解决后再 endTurn；否则直接结束回合
+    if (!this.state.pendingEvent && this.state.phase !== 'ended') {
+      this.endTurn(playerIndex);
+    }
     return { state: this.getState(), event };
   }
 
