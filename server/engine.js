@@ -604,6 +604,18 @@ export class GameEngine {
     return { state: this.getState() };
   }
 
+  /** 获取交易详情（地产名、价格、建筑等级），供联机 trade:request 使用 */
+  getTradeInfo(propId, sellerIndex, tradeType) {
+    const prop = properties[propId];
+    if (!prop) return { name: '', price: 0, buildingLevel: 0 };
+    const seller = this.state.players[sellerIndex];
+    const level = (seller && seller.buildings[propId]) || 0;
+    const price = tradeType === 'buyProperty'
+      ? prop.price + prop.buildCost * level
+      : prop.buildCost * level;
+    return { name: prop.name, price, buildingLevel: level };
+  }
+
   // 玩家间交易：买地皮（含建筑）
   buyPropertyFromPlayer(buyerIndex, propId, sellerIndex) {
     const buyer = this.state.players[buyerIndex];
@@ -984,6 +996,9 @@ export class GameEngine {
       this.state.phase = 'ended';
       return { state: this.getState() };
     }
+    // 重编号剩余玩家的 id（= 新数组下标），防止 splice 后 id 与下标不一致
+    // 否则 ownerId/owner.id 等引用会指向错误玩家
+    this.state.players.forEach((p, i) => { p.id = i; });
     if (wasCurrent) {
       // 删除的就是当前操作者：currentPlayerIndex 指向同一位置（现在已是下一玩家）
       // 若越界（删除的是末尾）则回绕到 0

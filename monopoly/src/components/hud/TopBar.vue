@@ -1,28 +1,13 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref } from 'vue'
 import { useGameStore } from '@/stores/gameStore'
 
 const store = useGameStore()
 
 const showRules = ref(false)
-const isMobile = ref(false)
 
-function checkMobile() {
-  isMobile.value = window.innerWidth < 768
-}
-onMounted(() => {
-  checkMobile()
-  window.addEventListener('resize', checkMobile)
-})
-onUnmounted(() => {
-  window.removeEventListener('resize', checkMobile)
-})
-
-// 移动端联机模式：隐藏游戏界面的退出按钮（用系统手势划出即可）
-const showExitBtn = computed(() => {
-  if (store.isOnlineMode && isMobile.value) return false
-  return true
-})
+// 退出按钮始终显示（移动端联机也通过此按钮正常退出房间，避免"划出未退房"问题）
+const showExitBtn = computed(() => true)
 
 const turnInfo = computed(() => {
   const p = store.currentPlayer

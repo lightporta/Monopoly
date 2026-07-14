@@ -35,6 +35,9 @@ const showSideDrawer = ref(false)
 const isMobile = ref(false)
 const showInvest = ref(false)
 
+// 标记：是否正在返回房间大厅（防止 onUnmounted 时误退房间）
+let isReturningToLobby = false
+
 // 联机模式：只有"我的待处理事件"才显示交互弹窗（interactivePendingModal 在非自己回合返回 null）
 const interactive = computed(() => store.interactivePendingModal)
 const showBuyProperty = computed(() => interactive.value?.type === 'buyProperty')
@@ -64,19 +67,15 @@ const tradeHandoffPlayer = computed(() => {
 })
 
 // 交易确认结果处理（被购买方点同意/拒绝后）
-function onTradeResolved(accepted: boolean) {
-  const trade = store.activeTradeData
-  store.closeTradeConfirm()
-  if (!trade) return
-  if (accepted) {
-    // 同意：执行交易（单机引擎）
-    if (trade.type === 'buyProperty') {
-      store.buyPropertyFromPlayer(trade.propertyId, trade.buyerId, trade.ownerId)
-    } else if (trade.type === 'buyBuilding') {
-      store.buyBuildingFromPlayer(trade.propertyId, trade.buyerId, trade.ownerId)
-    }
+function onTradeResolved(_accepted: boolean) {
+  // 联机模式：交易由服务端处理（TradeConfirmModal 已发 trade:respond），不执行本地操作
+  if (store.isOnlineMode) {
+    store.closeTradeConfirm()
+    return
   }
-  // 交易结束（无论同意/拒绝），清 pendingEvent 并结束回合，设备交回买家方
+  // 单机模式：TradeConfirmModal.accept() 已执行了交易（buyPropertyFromPlayer），
+  // 这里只做收尾：清 pendingEvent + endTurn，设备交回买家方
+  store.closeTradeConfirm()
   store.clearPendingEvent()
   store.endTurn()
 }
@@ -103,9 +102,11 @@ onMounted(() => {
     onlineUnsubs.push(onlineSDK.on('game:state', (data: any) => {
       store.applyOnlineState(data.gameState || data)
     }))
-    onlineUnsubs.push(onlineSDK.on('game:ended', (data: any) => {
-      // 服务端已通过 game:state 广播 ended 状态，这里做额外 UI 处理
-      store.applyOnlineState({ ...store.onlineGameState, phase: 'ended', winner: data.winner ? { name: data.winner } : null, winReason: data.winReason })
+    onlineUnsubs.push(onlineSDK.on('game:ended', () => {
+      // game:state 已包含完整 ended 状态（含 winner 对象），此处仅确保胜利弹窗显示
+      if (store.state.phase === 'ended') {
+        store.showVictory = true
+      }
     }))
     // 房主解散房间：所有人回首页并提示
     onlineUnsubs.push(onlineSDK.on('room:disbanded', () => {
@@ -121,8 +122,16 @@ onMounted(() => {
     onlineUnsubs.push(onlineSDK.on('player:left', (data: any) => {
       if (data?.playerName) store.showPlayerLeftNotice(data.playerName)
     }))
+    // 玩家退出后引擎索引重映射：更新自己的 myPlayerId
+    onlineUnsubs.push(onlineSDK.on('player_seats_updated', (data: any) => {
+      if (data?.playerSeats) {
+        const myEngineIndex = data.playerSeats.findIndex((s: any) => s.playerId === onlineSDK.playerId)
+        if (myEngineIndex >= 0) store.setMyPlayerId(myEngineIndex)
+      }
+    }))
     // 退到只剩房主：房主回到房间等待界面
     onlineUnsubs.push(onlineSDK.on('room:returned_to_lobby', (data: any) => {
+      isReturningToLobby = true
       onlineStore.setRoomState(data)
       onlineStore.gameStarted = false
       router.push('/online-room')
@@ -178,7 +187,8 @@ onUnmounted(() => {
   onlineUnsubs.forEach(fn => fn())
   onlineUnsubs = []
   // 联机模式：离开游戏界面时通知服务端退出房间（防止玩家幽灵滞留）
-  if (store.isOnlineMode) {
+  // 但返回房间大厅时不应该断开连接（玩家仍在房间中）
+  if (store.isOnlineMode && !isReturningToLobby) {
     try {
       onlineSDK.leaveRoom()
       onlineSDK.disconnect()
@@ -186,6 +196,7 @@ onUnmounted(() => {
     onlineStore.reset()
     store.setOnlineMode(false)
   }
+  isReturningToLobby = false
 })
 </script>
 

@@ -3,6 +3,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { GameEngine } from './engine.js';
@@ -297,19 +298,29 @@ function handlePlayerExit(room, playerId, reason) {
 
   // playing 阶段：引擎同步移除该玩家
   if (room.status === 'playing' && room.engine) {
-    // 实时在引擎 players 数组中查找该玩家索引（不能用缓存的 _engineIndex，
-    // 因为之前 removePlayer 用 splice 会导致后续玩家索引前移）
-    const enginePlayerIndex = room.engine.state.players.findIndex(
-      p => p.name === playerName
-    );
-    if (enginePlayerIndex >= 0) {
+    // 用 _engineIndex 找到退出者在引擎数组中的下标（removePlayer 前的当前值）
+    const enginePlayerIndex = player._engineIndex ?? -1;
+    if (enginePlayerIndex >= 0 && enginePlayerIndex < room.engine.state.players.length) {
       const engineResult = room.engine.removePlayer(enginePlayerIndex);
       room.gameState = engineResult.state || room.engine.getState();
     } else {
       room.gameState = room.engine.getState();
     }
-    // 通知剩余玩家
+    // removePlayer 用 splice 删除后，剩余玩家的引擎数组下标前移
+    // 重新同步所有剩余 room 玩家的 _engineIndex（通过 _enginePlayerId 匹配引擎 player.id）
+    room.engine.state.players.forEach((enginePlayer, idx) => {
+      const rp = room.players.find(p => p._enginePlayerId === enginePlayer.id);
+      if (rp) rp._engineIndex = idx;
+    });
+    // 通知剩余玩家：退出 + 座位映射更新（先更新 myPlayerId，再广播游戏状态，避免时序错位）
     broadcastRoom(roomKey, 'player:left', { playerName, reason });
+    // 广播新的 playerSeats 映射，让客户端先更新 myPlayerId
+    const newPlayerSeats = room.engine.state.players.map((enginePlayer, idx) => {
+      const rp = room.players.find(p => p._enginePlayerId === enginePlayer.id);
+      return { playerId: rp?.playerId, seatIndex: rp?.seatIndex, playerName: enginePlayer.name };
+    });
+    broadcastRoom(roomKey, 'player_seats_updated', { playerSeats: newPlayerSeats });
+    // 再广播游戏状态（此时前端 myPlayerId 已更新，isMyTurn 判定正确）
     broadcastRoom(roomKey, 'game:state', room.gameState);
 
     const connectedCount = room.players.filter(p => p.connected).length;
@@ -390,8 +401,9 @@ function handleStart(ws, reqId) {
   const sortedConnected = room.players
     .filter(p => p.connected)
     .sort((a, b) => a.seatIndex - b.seatIndex);
-  // 记录每个玩家在引擎中的 playerIndex（removePlayer 时需要）
-  sortedConnected.forEach((p, i) => { p._engineIndex = i; });
+  // 记录每个玩家在引擎中的 playerIndex（removePlayer 后需重算）
+  // _enginePlayerId: 永久映射到引擎 player.id 字段（不随 splice 变化）
+  sortedConnected.forEach((p, i) => { p._engineIndex = i; p._enginePlayerId = i; });
   const playerConfigs = sortedConnected.map(p => ({ name: p.playerName, seatIndex: p.seatIndex }));
 
   const gameState = engine.initGame(playerConfigs);
@@ -424,7 +436,7 @@ function handleRestart(ws, reqId) {
   const sortedConnected = room.players
     .filter(p => p.connected)
     .sort((a, b) => a.seatIndex - b.seatIndex);
-  sortedConnected.forEach((p, i) => { p._engineIndex = i; });
+  sortedConnected.forEach((p, i) => { p._engineIndex = i; p._enginePlayerId = i; });
   const playerConfigs = sortedConnected.map(p => ({ name: p.playerName, seatIndex: p.seatIndex }));
 
   const gameState = engine.initGame(playerConfigs);
@@ -454,11 +466,9 @@ function handleGameAction(ws, payload, reqId) {
     return sendError(ws, 'PLAYER_NOT_FOUND', '玩家不存在', reqId);
   }
 
-  const sortedPlayers = room.players
-    .filter(p => p.connected)
-    .sort((a, b) => a.seatIndex - b.seatIndex);
-  const playerIndex = sortedPlayers.findIndex(p => p.playerId === playerId);
-  if (playerIndex === -1) {
+  // 使用 _engineIndex 直接映射引擎数组下标（removePlayer 后已同步更新）
+  const playerIndex = player._engineIndex ?? -1;
+  if (playerIndex < 0 || playerIndex >= room.engine.state.players.length) {
     return sendError(ws, 'PLAYER_NOT_FOUND', '玩家不在游戏中', reqId);
   }
 
@@ -466,11 +476,17 @@ function handleGameAction(ws, payload, reqId) {
 
   // 联机交易确认：买方发起买真人玩家资产时，先推 trade:request 给卖方确认
   if ((action === 'buyPropertyFromPlayer' || action === 'buyBuildingFromPlayer') && params) {
-    const seller = room.players.find(p => p.seatIndex === params.sellerId);
-    // 卖方是真人且在线：走两阶段确认
-    const sellerEngineId = room.engine.state.players.findIndex(p => p.id === params.sellerId);
-    const sellerEnginePlayer = sellerEngineId >= 0 ? room.engine.state.players[sellerEngineId] : null;
+    // params.sellerId 是引擎数组下标（= 前端 event.ownerId），用 _enginePlayerId 匹配
+    const sellerEngineIndex = params.sellerId;
+    const sellerEnginePlayer = room.engine.state.players[sellerEngineIndex];
+    // 通过 _enginePlayerId 找到对应的 room 玩家（不依赖 seatIndex 或 playerName）
+    const seller = sellerEnginePlayer
+      ? room.players.find(p => p._enginePlayerId === sellerEnginePlayer.id)
+      : null;
     if (seller && seller.connected && sellerEnginePlayer) {
+      // 获取交易详情（地产名、价格）
+      const tradeType = action === 'buyPropertyFromPlayer' ? 'buyProperty' : 'buyBuilding';
+      const info = room.engine.getTradeInfo(params.propertyId, params.sellerId, tradeType);
       // 暂存待确认交易
       room.pendingTrade = {
         buyerIndex: playerIndex,
@@ -478,21 +494,20 @@ function handleGameAction(ws, payload, reqId) {
         action,
         params,
         tradeData: {
-          type: action === 'buyPropertyFromPlayer' ? 'buyProperty' : 'buyBuilding',
+          type: tradeType,
           propertyId: params.propertyId,
-          propertyName: sellerEnginePlayer.name, // 临时占位，前端用引擎数据补全
+          propertyName: info.name,
           ownerId: params.sellerId,
           ownerName: seller.playerName,
           buyerId: playerIndex,
           buyerName: player.playerName,
-          price: 0 // 前端根据 propertyId 自行计算
+          price: info.price,
+          buildingLevel: info.buildingLevel
         }
       };
-      // 通知买方"等待确认"
       send(ws, 'trade:waiting', { sellerName: seller.playerName });
-      // 推 trade:request 给卖方
       send(seller.ws, 'trade:request', room.pendingTrade.tradeData);
-      return; // 暂不执行交易，等卖方 trade:respond
+      return;
     }
   }
 
@@ -581,12 +596,13 @@ function skipDisconnectedPlayer(room) {
   const currentIdx = room.engine.state.currentPlayerIndex;
   const currentPlayer = room.engine.state.players[currentIdx];
   if (!currentPlayer) return;
-  // 查该玩家在 room.players 中的 connected 状态
-  const roomPlayer = room.players.find(p => p.playerName === currentPlayer.name);
+  // 通过 _enginePlayerId 匹配 room 玩家（不依赖 playerName，避免重名风险）
+  const roomPlayer = room.players.find(p => p._enginePlayerId === currentPlayer.id);
   if (roomPlayer && !roomPlayer.connected) {
     room.engine.nextTurn((p) => {
-      const rp = room.players.find(pp => pp.playerName === p.name);
-      return !rp || !rp.connected; // 断线的跳过
+      const pIdx = room.engine.state.players.indexOf(p);
+      const rp = room.players.find(pp => pp._engineIndex === pIdx);
+      return !rp || !rp.connected;
     });
     room.gameState = room.engine.getState();
     broadcastRoom(room.roomKey, 'game:state', room.gameState);

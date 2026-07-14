@@ -117,8 +117,18 @@ class OnlineSDK {
     if (type === 'room:created') {
       this.roomKey = payload.roomKey;
       this.isHost = true;
+      // 用服务端分配的 playerId 覆盖本地 UUID（确保与 playerSeats 匹配）
+      if (payload.playerId) {
+        this.playerId = payload.playerId;
+        localStorage.setItem('monopoly_playerId', this.playerId);
+      }
     } else if (type === 'room:joined') {
       this.roomKey = payload.roomKey;
+      // 用服务端分配的 playerId 覆盖本地 UUID
+      if (payload.playerId) {
+        this.playerId = payload.playerId;
+        localStorage.setItem('monopoly_playerId', this.playerId);
+      }
     } else if (type === 'room:disbanded') {
       this.roomKey = null;
       this.isHost = false;

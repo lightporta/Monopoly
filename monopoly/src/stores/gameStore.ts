@@ -207,6 +207,12 @@ export const useGameStore = defineStore('game', () => {
       }
       diceAnimating.value = true
       sendOnlineAction('roll')
+      // 超时兜底：服务端 8s 内未回 game:state 则解除动画（防止卡死）
+      setTimeout(() => {
+        if (diceAnimating.value) {
+          diceAnimating.value = false
+        }
+      }, 8000)
       return
     }
     diceAnimating.value = true
@@ -936,35 +942,6 @@ export const useGameStore = defineStore('game', () => {
     return onlineSDK.sendGameAction(action, params)
   }
 
-  // 联机版掷骰
-  function onlineRollDice() {
-    if (!canRollDice.value) return
-    diceAnimating.value = true
-    sendOnlineAction('roll')
-  }
-
-  // 联机版结束回合
-  function onlineEndTurn() {
-    sendOnlineAction('endTurn')
-  }
-
-  // 联机版购买地产
-  function onlineBuy() {
-    const event = pendingModal.value
-    if (!event?.propertyId) return
-    sendOnlineAction('buy', { propertyId: event.propertyId })
-  }
-
-  // 联机版放弃购买
-  function onlineDeclineBuy() {
-    sendOnlineAction('declineBuy')
-  }
-
-  // 联机版传送/移动
-  function onlineTeleportTo(targetIndex: number) {
-    sendOnlineAction('teleportTo', { targetIndex })
-  }
-
   return {
     state,
     board,
@@ -1004,11 +981,6 @@ export const useGameStore = defineStore('game', () => {
     playAgain,
     applyOnlineState,
     sendOnlineAction,
-    onlineRollDice,
-    onlineEndTurn,
-    onlineBuy,
-    onlineDeclineBuy,
-    onlineTeleportTo,
     initGame,
     rollDice,
     buyProperty,

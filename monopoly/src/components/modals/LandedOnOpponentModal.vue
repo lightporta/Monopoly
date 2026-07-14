@@ -90,6 +90,11 @@ function initTrade(type: 'buyProperty' | 'buyBuilding' | 'rent') {
 
   // 租房：落敌地产付租是强制的，直接执行，无需对方确认
   if (type === 'rent') {
+    if (store.isOnlineMode) {
+      // 联机模式：发 payRent action，服务端内部会 endTurn，无需本地弹窗
+      store.payRentToPlayer(tradeData.value.propertyId, tradeData.value.buyerId, tradeData.value.ownerId)
+      return
+    }
     handleTradeResult(true)
     return
   }
@@ -148,7 +153,10 @@ function handleNoNeed() {
 function onResultClose() {
   showTradeResult.value = false
   store.clearPendingEvent()
-  store.endTurn()
+  // 联机模式：服务端在 action 处理时已 endTurn，不再重复发送
+  if (!store.isOnlineMode) {
+    store.endTurn()
+  }
 }
 </script>
 
