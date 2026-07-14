@@ -1,5 +1,34 @@
 # 更新日志
 
+## v3.8.1 - 深度 Bug 修复 + 目录重构（2026-07-14）
+
+### 🔴 P0 核心修复
+1. **myPlayerId 永远为 0（根因）**：onlineSdk.js 收到 room:created/room:joined 时用服务端 payload.playerId 覆盖本地 UUID，playerSeats.findIndex 能正确匹配，第二玩家 isMyTurn 变为 true
+2. **removePlayer 后 id 不重编号**：engine.js splice 后 players.forEach((p,i) => p.id = i)，ownerId/owner.id 始终等于数组下标
+3. **_enginePlayerId 匹配失效（连锁 Bug）**：engine id 重编号后 _enginePlayerId 不再匹配，改用基于下标的同步方式（下标 > 删除位置则减 1）
+4. **removePlayer 缩进错误**：`this.state.phase = 'idle'` 在 if(wasCurrent) 块外，导致非当前玩家退出时也重置 phase
+
+### 🟡 P1 修复
+5. **tradeData.propertyName 显示玩家名**：改为用 getTradeInfo 获取真实地产名
+6. **tradeData.price 始终为 0**：用 getTradeInfo 计算实际价格
+7. **单机交易重复执行**：onTradeResolved 不再重复调 buyPropertyFromPlayer（TradeConfirmModal.accept() 已执行）
+8. **广播时序错位**：先发 player_seats_updated 再发 game:state，确保前端 myPlayerId 先更新再接收新状态
+9. **租房流程多走 endTurn**：联机模式 rent 分支直接发 payRent action（服务端内部已 endTurn）
+
+### 🟢 低风险修复
+10. **diceAnimating 无超时兜底**：联机掷骰 8s 未收到 game:state 则自动解除动画
+11. **死代码清理**：删除 gameStore.ts 中 onlineRollDice/onlineEndTurn/onlineBuy/onlineDeclineBuy/onlineTeleportTo（全仓库无引用）
+12. **移动端退出按钮隐藏**：TopBar 退出按钮始终显示，避免"划出未退房"问题
+13. **crypto 未显式 import**：server.js 添加 `import crypto from 'node:crypto'`
+
+### 📁 目录重构
+- docs/design/ 文件名去掉版本号（PRD-v3.8.md → PRD.md）
+- docs/deploy/ 新增子目录，部署运维文档归位
+- 游戏规则独立为 game-rules.md
+- README 文档索引更新
+
+---
+
 ## v3.8.0 - 联机版全面 Bug 修复（8 项）（2026-07-14）
 
 ### 🔴 核心 Bug 修复

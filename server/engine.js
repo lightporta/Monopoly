@@ -1005,7 +1005,7 @@ export class GameEngine {
       this.state.currentPlayerIndex = this.state.currentPlayerIndex % this.state.players.length;
       // 清除待处理事件（退出者的事件不再有效）
       this.state.pendingEvent = null;
-    this.state.phase = 'idle';
+      this.state.phase = 'idle';
     } else if (playerIndex < this.state.currentPlayerIndex) {
       // 删除的在当前操作者之前：当前索引前移
       this.state.currentPlayerIndex -= 1;

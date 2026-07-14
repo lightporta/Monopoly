@@ -79,27 +79,31 @@ npm run preview
 
 ```
 MillionaireGame/
-├── docs/                      # 设计文档
-│   └── design/                # 核心设计与规则文档
-├── monopoly/                  # 前端项目（Vue 3 + Vite）
+├── docs/                      # 项目文档
+│   ├── design/                # 设计文档
+│   │   ├── PRD.md             # 产品需求文档
+│   │   ├── TechnicalArchitecture.md  # 技术架构文档
+│   │   └── game-rules.md      # 完整游戏规则
+│   └── deploy/                # 部署运维文档
+│       ├── deployment-guide.md  # 部署指南
+│       └── operations-guide.md  # 运维指南
+├── monopoly/                  # 前端项目（Vue 3 + Vite + TypeScript）
 │   ├── src/
-│   │   ├── data/              # JSON 静态数据
-│   │   ├── engine/            # 游戏引擎（TypeScript）
+│   │   ├── data/              # JSON 静态数据（棋盘/卡牌/地产等）
+│   │   ├── engine/            # 游戏引擎核心逻辑
 │   │   ├── stores/            # Pinia 状态管理
-│   │   ├── online/            # 联机 SDK
-│   │   ├── components/        # UI 组件
+│   │   ├── online/            # 联机 SDK（WebSocket）
+│   │   ├── components/        # UI 组件（hud/modals/board）
 │   │   ├── views/             # 页面视图
 │   │   ├── router/            # 路由配置
 │   │   └── assets/            # 静态资源
-│   ├── dist/                  # 构建产物（单文件 HTML）
 │   ├── package.json
 │   └── vite.config.ts
 ├── server/                    # 服务端（Node.js + WebSocket）
-│   ├── server.js              # 主服务程序
+│   ├── server.js              # 主服务程序（房间管理+WebSocket）
 │   ├── engine.js              # 服务端游戏引擎
 │   ├── data.js                # 游戏数据配置
-│   ├── public/                # 静态文件托管
-│   │   └── index.html         # 前端构建产物
+│   ├── public/                # 静态文件托管（前端构建产物）
 │   └── package.json
 ├── README.md
 └── CHANGELOG.md
@@ -256,11 +260,11 @@ npm run build
 
 | 文档 | 说明 |
 |---|---|
-| [📋 PRD V3.8](./docs/design/PRD-v3.8.md) | 产品需求文档（联机回合流转修复/移动端退出/三条件胜负/AI三档/交易设备交接） |
-| [🏗️ 技术架构 V3.8](./docs/design/TechnicalArchitecture-v3.8.md) | 技术架构文档（引擎设计/数据结构/联机协议） |
-| [🎮 游戏设计 V3.8](./docs/design/game-design-v3.8.md) | 完整游戏规则（联机回合流转修复/移动端退出/三条件胜负/AI三档/交易设备交接） |
-| [🚀 部署指南](./docs/deployment-guide.md) | 云端部署（含学生优惠/PM2/Nginx/HTTPS） |
-| [🛠️ 部署与运维](./docs/operations-guide.md) | 面向部署者的运维指南（查看状态/日志/更新） |
+| [📋 PRD](./docs/design/PRD.md) | 产品需求文档 |
+| [🏗️ 技术架构](./docs/design/TechnicalArchitecture.md) | 技术架构文档（引擎设计/数据结构/联机协议） |
+| [🎮 游戏规则](./docs/design/game-rules.md) | 完整游戏规则 |
+| [🚀 部署指南](./docs/deploy/deployment-guide.md) | 云端部署（含 PM2/Nginx/HTTPS） |
+| [🛠️ 运维指南](./docs/deploy/operations-guide.md) | 面向部署者的运维指南（查看状态/日志/更新） |
 | [📝 更新日志](./CHANGELOG.md) | 版本变更记录 |
 
 ### 服务端
