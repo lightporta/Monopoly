@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useGameStore } from '@/stores/gameStore'
+import { onlineSDK } from '@/online/onlineSdk.js'
 
 const props = defineProps<{
   show: boolean
@@ -29,7 +30,14 @@ const typeLabel = computed(() => {
   }
 })
 
-function accept() {
+async function accept() {
+  // 联机模式：发 trade:respond 给服务端，由服务端执行交易
+  if (store.isOnlineMode) {
+    onlineSDK.respondTrade(true)
+    emit('update:show', false)
+    return
+  }
+  // 单机模式：本地执行交易
   let ok = false
   if (props.tradeType === 'buyProperty') {
     ok = store.buyPropertyFromPlayer(props.propertyId, props.buyerId, props.ownerId)
@@ -42,7 +50,13 @@ function accept() {
   emit('update:show', false)
 }
 
-function reject() {
+async function reject() {
+  // 联机模式：发 trade:respond 拒绝
+  if (store.isOnlineMode) {
+    onlineSDK.respondTrade(false)
+    emit('update:show', false)
+    return
+  }
   emit('resolved', false)
   emit('update:show', false)
 }

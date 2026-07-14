@@ -1007,15 +1007,21 @@ export class GameEngine {
     return { state: this.getState() };
   }
 
-  nextTurn() {
+  nextTurn(skipCallback) {
     if (this.state.phase === 'ended') return;
     if (this.extraTurnPending) {
       this.extraTurnPending = false;
-      return; // 不切换玩家
+      return; // 双数/重掷：不切换玩家
     }
     let next = (this.state.currentPlayerIndex + 1) % this.state.players.length;
     let safety = 0;
-    while (this.state.players[next].bankrupt && safety < this.state.players.length) {
+    while (safety < this.state.players.length) {
+      const p = this.state.players[next];
+      // 跳过破产、skipNextTurn、或调用方判定应跳过的玩家（如断线）
+      if (p.bankrupt) { /* 跳过 */ }
+      else if (p.skipNextTurn) { p.skipNextTurn = false; this.addLog(`${p.name} 跳过本回合`); }
+      else if (skipCallback && skipCallback(p)) { /* 调用方判定跳过（如断线） */ }
+      else break;
       next = (next + 1) % this.state.players.length;
       safety++;
     }

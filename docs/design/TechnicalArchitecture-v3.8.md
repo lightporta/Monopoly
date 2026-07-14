@@ -1,6 +1,6 @@
-# 《仙境海岸·大富翁》技术架构文档（TD V3.7）
+# 《仙境海岸·大富翁》技术架构文档（TD V3.8）
 
-> **文档版本**：V3.7
+> **文档版本**：V3.8
 > **生成日期**：2026-07-14
 > **技术栈**：Vue 3 + Vite + TypeScript + Pinia（前端）| Node.js + ws（服务端）
 > **前序文档**：V3.0 / V3.4（已归档）
@@ -607,4 +607,4 @@ monopoly/ → npm run build → dist/index.html（单文件，330KB）
 
 ---
 
-> **文档结束** | V3.7 TD | 2026-07-14 | 配套文档：[PRD V3.7](./PRD-v3.7.md)、[游戏设计 V3.7](./game-design-v3.7.md)、[部署指南](../deployment-guide.md)
+> **文档结束** | V3.8 TD | 2026-07-14 | 配套文档：[PRD V3.8](./PRD-v3.7.md)、[游戏设计 V3.8](./game-design-v3.7.md)、[部署指南](../deployment-guide.md)

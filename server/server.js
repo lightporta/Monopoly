@@ -129,6 +129,9 @@ function handleMessage(ws, msg) {
     case 'game:action':
       handleGameAction(ws, payload, reqId);
       break;
+    case 'trade:respond':
+      handleTradeRespond(ws, payload, reqId);
+      break;
     default:
       sendError(ws, 'UNKNOWN_TYPE', '未知消息类型');
   }
@@ -294,15 +297,17 @@ function handlePlayerExit(room, playerId, reason) {
 
   // playing 阶段：引擎同步移除该玩家
   if (room.status === 'playing' && room.engine) {
-    const sortedConnected = room.players
-      .filter(p => p.connected)
-      .sort((a, b) => a.seatIndex - b.seatIndex);
-    // 找到退出者在引擎中对应的 playerIndex（基于原排序快照）
-    // 引擎内 playerIndex = 开局时 connected 排序后的下标；退出后需重算
-    // 直接通知剩余玩家：广播 player:left + 新状态（引擎 removePlayer 已处理）
-    // 注意：需用退出前的引擎 playerIndex 调 removePlayer
-    const engineResult = room.engine.removePlayer(player._engineIndex ?? -1);
-    room.gameState = engineResult.state || room.engine.getState();
+    // 实时在引擎 players 数组中查找该玩家索引（不能用缓存的 _engineIndex，
+    // 因为之前 removePlayer 用 splice 会导致后续玩家索引前移）
+    const enginePlayerIndex = room.engine.state.players.findIndex(
+      p => p.name === playerName
+    );
+    if (enginePlayerIndex >= 0) {
+      const engineResult = room.engine.removePlayer(enginePlayerIndex);
+      room.gameState = engineResult.state || room.engine.getState();
+    } else {
+      room.gameState = room.engine.getState();
+    }
     // 通知剩余玩家
     broadcastRoom(roomKey, 'player:left', { playerName, reason });
     broadcastRoom(roomKey, 'game:state', room.gameState);
@@ -458,6 +463,39 @@ function handleGameAction(ws, payload, reqId) {
   }
 
   const { action, params } = payload;
+
+  // 联机交易确认：买方发起买真人玩家资产时，先推 trade:request 给卖方确认
+  if ((action === 'buyPropertyFromPlayer' || action === 'buyBuildingFromPlayer') && params) {
+    const seller = room.players.find(p => p.seatIndex === params.sellerId);
+    // 卖方是真人且在线：走两阶段确认
+    const sellerEngineId = room.engine.state.players.findIndex(p => p.id === params.sellerId);
+    const sellerEnginePlayer = sellerEngineId >= 0 ? room.engine.state.players[sellerEngineId] : null;
+    if (seller && seller.connected && sellerEnginePlayer) {
+      // 暂存待确认交易
+      room.pendingTrade = {
+        buyerIndex: playerIndex,
+        sellerPlayerId: seller.playerId,
+        action,
+        params,
+        tradeData: {
+          type: action === 'buyPropertyFromPlayer' ? 'buyProperty' : 'buyBuilding',
+          propertyId: params.propertyId,
+          propertyName: sellerEnginePlayer.name, // 临时占位，前端用引擎数据补全
+          ownerId: params.sellerId,
+          ownerName: seller.playerName,
+          buyerId: playerIndex,
+          buyerName: player.playerName,
+          price: 0 // 前端根据 propertyId 自行计算
+        }
+      };
+      // 通知买方"等待确认"
+      send(ws, 'trade:waiting', { sellerName: seller.playerName });
+      // 推 trade:request 给卖方
+      send(seller.ws, 'trade:request', room.pendingTrade.tradeData);
+      return; // 暂不执行交易，等卖方 trade:respond
+    }
+  }
+
   const result = room.engine.handleGameAction(playerIndex, action, params || {});
 
   if (result.error) {
@@ -479,6 +517,80 @@ function handleGameAction(ws, payload, reqId) {
         .map(p => ({ name: p.name, cash: p.cash, bankrupt: p.bankrupt }))
         .sort((a, b) => b.cash - a.cash)
     });
+    return;
+  }
+
+  // 自动推进：若当前回合玩家已断线（10s 超时前的间隙），服务端主动跳过
+  skipDisconnectedPlayer(room);
+}
+
+/**
+ * 处理卖方对交易请求的响应（同意/拒绝）。
+ */
+function handleTradeRespond(ws, payload, reqId) {
+  const info = clients.get(ws);
+  if (!info) return;
+  const room = rooms.get(info.roomKey);
+  if (!room || !room.pendingTrade) {
+    return sendError(ws, 'NO_TRADE', '无待确认交易', reqId);
+  }
+
+  const trade = room.pendingTrade;
+  // 校验响应者是卖方本人
+  if (info.playerId !== trade.sellerPlayerId) {
+    return sendError(ws, 'NOT_SELLER', '仅卖方可确认交易', reqId);
+  }
+
+  const accepted = payload && payload.accepted;
+  room.pendingTrade = null; // 清除待确认交易
+
+  if (accepted) {
+    // 卖方同意：执行交易
+    const result = room.engine.handleGameAction(trade.buyerIndex, trade.action, trade.params);
+    if (result.error) {
+      // 交易失败（如资金不足）
+      broadcastRoom(room.roomKey, 'trade:result', { accepted: false, message: result.error });
+      return;
+    }
+    room.gameState = result.state || room.engine.getState();
+    broadcastRoom(room.roomKey, 'trade:result', { accepted: true, message: '交易成功' });
+    broadcastRoom(room.roomKey, 'game:state', room.gameState);
+    if (room.gameState.phase === 'ended' && room.gameState.winner) {
+      room.status = 'ended';
+      broadcastRoom(room.roomKey, 'game:ended', {
+        winner: room.gameState.winner.name,
+        winnerId: room.gameState.winner.id,
+        winReason: room.gameState.winReason
+      });
+    }
+  } else {
+    // 卖方拒绝：取消交易，结束买方回合
+    room.engine.endTurn(trade.buyerIndex);
+    room.gameState = room.engine.getState();
+    broadcastRoom(room.roomKey, 'trade:result', { accepted: false, message: '卖方拒绝交易' });
+    broadcastRoom(room.roomKey, 'game:state', room.gameState);
+  }
+}
+
+/**
+ * 若当前回合玩家已断线，自动推进到下一个在线玩家。
+ * 防止"轮到断线玩家时游戏卡死"（在 10s 超时移除前的间隙）。
+ */
+function skipDisconnectedPlayer(room) {
+  if (!room.engine || room.gameState.phase === 'ended' || room.gameState.pendingEvent) return;
+  const currentIdx = room.engine.state.currentPlayerIndex;
+  const currentPlayer = room.engine.state.players[currentIdx];
+  if (!currentPlayer) return;
+  // 查该玩家在 room.players 中的 connected 状态
+  const roomPlayer = room.players.find(p => p.playerName === currentPlayer.name);
+  if (roomPlayer && !roomPlayer.connected) {
+    room.engine.nextTurn((p) => {
+      const rp = room.players.find(pp => pp.playerName === p.name);
+      return !rp || !rp.connected; // 断线的跳过
+    });
+    room.gameState = room.engine.getState();
+    broadcastRoom(room.roomKey, 'game:state', room.gameState);
+    console.log(`自动跳过断线玩家: ${currentPlayer.name}`);
   }
 }
 
@@ -501,12 +613,12 @@ function handleDisconnect(ws) {
     const r = rooms.get(roomKey);
     if (!r) return;
     const p = r.players.find(pp => pp.playerId === playerId);
-    // 30s 未重连：统一走 handlePlayerExit（移除玩家/解散房间）
+    // 10s 未重连：统一走 handlePlayerExit（移除玩家/解散房间）
     if (p && !p.connected) {
       reconnectTimers.delete(timerKey);
       handlePlayerExit(r, playerId, 'disconnect_timeout');
     }
-  }, 30000);
+  }, 10000);
   reconnectTimers.set(timerKey, timeout);
 
   const connectedCount = room.players.filter(p => p.connected).length;

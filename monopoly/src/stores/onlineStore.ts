@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { useGameStore } from './gameStore'
 
 export const useOnlineStore = defineStore('online', () => {
   const roomKey = ref<string | null>(null)
@@ -31,6 +32,11 @@ export const useOnlineStore = defineStore('online', () => {
     roomState.value = null
     playerSeats.value = []
     gameStarted.value = false
+    // 同步清理 gameStore 联机状态，防止残留导致下次进入异常
+    try {
+      const gameStore = useGameStore()
+      gameStore.setOnlineMode(false)
+    } catch (e) { /* Pinia 未初始化时忽略 */ }
   }
 
   return {

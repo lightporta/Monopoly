@@ -1,11 +1,23 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
 import { useGameStore } from '@/stores/gameStore'
+import { useOnlineStore } from '@/stores/onlineStore'
+import { onlineSDK } from '@/online/onlineSdk.js'
 
 const store = useGameStore()
+const onlineStore = useOnlineStore()
 const router = useRouter()
 
 function confirmExit() {
+  // 联机模式：通知服务端退出房间
+  if (store.isOnlineMode) {
+    try {
+      onlineSDK.leaveRoom()
+      onlineSDK.disconnect()
+    } catch (e) { /* ignore */ }
+    onlineStore.reset()
+    store.setOnlineMode(false)
+  }
   store.confirmExit()
   router.push('/')
 }

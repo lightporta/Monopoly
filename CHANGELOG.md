@@ -1,5 +1,27 @@
 # 更新日志
 
+## v3.8.0 - 联机版全面 Bug 修复（8 项）（2026-07-14）
+
+### 🔴 核心 Bug 修复
+1. **连续退出删错玩家**：handlePlayerExit 改用引擎内实时 name 查找替代缓存 _engineIndex（splice 导致索引前移）
+2. **联机交易确认**：新增 trade:request/trade:respond 两阶段协议——买方发交易请求→服务端推 trade:request 给卖方→卖方弹 TradeConfirmModal 确认→同意/拒绝后服务端执行或取消
+3. **退出未通知服务端**：GameView onUnmounted 和 ExitConfirmModal confirmExit 联机模式调 leaveRoom+disconnect（防止玩家幽灵滞留）
+4. **断线卡死**：超时 30s→10s；nextTurn 增加 skipCallback 支持跳过断线/skipNextTurn 玩家；handleGameAction 后自动 skipDisconnectedPlayer
+
+### 🔴 交易确认扩展
+5. **PVE AI 买真人资产**：AI 落真人地产决定买时触发 startTradeHandoff 设备交接（真人确认），不再直接夺走资产
+6. **onlineStore.reset** 清理 gameStore 联机状态（setOnlineMode(false)）
+
+### 🟡 同步修复
+7. **日志同步**：GameLog lastProcessedLen 在联机状态回退时重置（修复新一局日志不刷新）
+8. **skipNextTurn**：nextTurn 统一处理 skipNextTurn（不再依赖玩家主动掷骰，断线也自动跳过）
+
+### 文档升级 V3.8
+- PRD/game-design/TechnicalArchitecture 升级到 v3.8（旧 v3.7 删除）
+- README 索引 + package.json version 3.8.0
+
+---
+
 ## v3.7.0 - 交易设备交接 + 文档升级 V3.7（2026-07-14）
 
 ### 新增：交易设备交接流程（真人买真人资产）

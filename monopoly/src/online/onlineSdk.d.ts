@@ -15,6 +15,7 @@ declare module '@/online/onlineSdk.js' {
     startGame(): boolean
     restartGame(): boolean
     sendGameAction(action: string, params?: any): boolean
+    respondTrade(accepted: boolean): boolean
     disconnect(): void
     getPlayerName(): string
     setPlayerName(name: string): void

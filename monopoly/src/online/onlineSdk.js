@@ -191,6 +191,11 @@ class OnlineSDK {
     return this.send('game:action', { action, params });
   }
 
+  /** 联机交易确认：卖方回应（同意/拒绝） */
+  respondTrade(accepted) {
+    return this.send('trade:respond', { accepted });
+  }
+
   disconnect() {
     this._stopHeartbeat();
     if (this.ws) {

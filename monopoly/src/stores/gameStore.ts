@@ -711,18 +711,35 @@ export const useGameStore = defineStore('game', () => {
         const prop = properties.value.find(p => p.id === event.propertyId)
         const level = getBuildingLevel(event.propertyId, event.ownerId)
         const buyPrice = prop ? prop.price + prop.buildCost * level : 0
+        const owner = state.value.players.find(p => p.id === event.ownerId)
         const roll = Math.random()
         // hard 模式额外用 ROI 评估买地皮是否划算；easy/normal 仅按概率
         const shouldBuyLand = ai.getLevel() === 'hard' && prop
           ? ai.evaluateLandPurchase(prop, buyPrice, aiPlayer)
           : (roll < w.buyLand && aiPlayer.cash >= buyPrice + 2000)
+
         if (shouldBuyLand) {
-          // 买地皮
+          if (owner && !owner.isAI) {
+            // 被购买方是真人：必须经真人确认（设备交接 + TradeConfirmModal）
+            pendingModal.value = null
+            startTradeHandoff(owner.id, {
+              type: 'buyProperty',
+              propertyId: event.propertyId,
+              propertyName: prop?.name ?? '',
+              ownerId: event.ownerId,
+              ownerName: owner.name,
+              buyerId: aiPlayer.id,
+              buyerName: aiPlayer.name,
+              price: buyPrice
+            })
+            return  // 暂停 AI 回合，等真人确认后 onTradeResolved 继续
+          }
+          // 被购买方是 AI：直接成交
           engine.buyPropertyFromPlayer(event.propertyId, aiPlayer.id, event.ownerId)
           syncState()
           lastEventMessage.value = `${aiPlayer.name} 向 ${event.ownerName} 购买了 ${prop?.name}`
         } else if (roll < w.buyLand + w.rent && aiPlayer.cash >= rent) {
-          // 租房
+          // 租房（租金强制，无需确认）
           engine.payRentToPlayer(event.propertyId, aiPlayer.id, event.ownerId)
           syncState()
           lastEventMessage.value = `${aiPlayer.name} 向 ${event.ownerName} 支付了 ${prop?.name} 租金 ¥${rent}`

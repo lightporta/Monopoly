@@ -146,6 +146,30 @@ onMounted(() => {
         store.showPlayerLeftNotice(payload.message)
       }
     }))
+    // 联机交易：买方等待卖方确认
+    onlineUnsubs.push(onlineSDK.on('trade:waiting', (data: any) => {
+      if (data?.sellerName) {
+        store.showPlayerLeftNotice(`等待 ${data.sellerName} 确认交易...`)
+      }
+    }))
+    // 联机交易：卖方收到交易请求，弹出确认弹窗
+    onlineUnsubs.push(onlineSDK.on('trade:request', (data: any) => {
+      if (data) {
+        // 补全价格（服务端不传 price，前端按 propertyId 计算）
+        const prop = store.properties.find((p: any) => p.id === data.propertyId)
+        const price = prop ? prop.price + prop.buildCost * (data.buildingLevel ?? 0) : 0
+        store.activeTradeData = { ...data, price }
+        store.showTradeConfirm = true
+      }
+    }))
+    // 联机交易：结果通知（买方/卖方收到）
+    onlineUnsubs.push(onlineSDK.on('trade:result', (data: any) => {
+      store.showTradeConfirm = false
+      store.activeTradeData = null
+      if (data?.message) {
+        store.showPlayerLeftNotice(data.message)
+      }
+    }))
   }
 })
 
@@ -153,6 +177,15 @@ onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
   onlineUnsubs.forEach(fn => fn())
   onlineUnsubs = []
+  // 联机模式：离开游戏界面时通知服务端退出房间（防止玩家幽灵滞留）
+  if (store.isOnlineMode) {
+    try {
+      onlineSDK.leaveRoom()
+      onlineSDK.disconnect()
+    } catch (e) { /* ignore */ }
+    onlineStore.reset()
+    store.setOnlineMode(false)
+  }
 })
 </script>
 

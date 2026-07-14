@@ -91,6 +91,11 @@ function streamNext() {
 
 function checkForNewLogs() {
   const currentLen = store.state.log.length
+  // 联机状态整体替换后 log 数组可能回退（如新一局），此时重置并重新加载
+  if (currentLen < lastProcessedLen) {
+    lastProcessedLen = 0
+    visibleLogs.value = []
+  }
   if (currentLen > lastProcessedLen) {
     const newEntries = store.state.log.slice(lastProcessedLen)
     lastProcessedLen = currentLen
