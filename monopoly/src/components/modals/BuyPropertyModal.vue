@@ -4,7 +4,7 @@ import { useGameStore } from '@/stores/gameStore'
 
 const store = useGameStore()
 
-const visible = computed(() => store.pendingModal?.type === 'buyProperty')
+const visible = computed(() => store.interactivePendingModal?.type === 'buyProperty')
 
 const property = computed(() => {
   const id = store.pendingModal?.propertyId

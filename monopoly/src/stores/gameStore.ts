@@ -77,10 +77,17 @@ export const useGameStore = defineStore('game', () => {
   // 联机模式：玩家退出提示（"{昵称}已退出房间"，1s 自动关闭）
   const playerLeftNotice = ref('')
 
+  // 联机模式：没有待处理事件，或待处理事件是我的时，才允许操作
+  // （别人的 pendingEvent 不应锁住我的按钮）
+  const noBlockingModal = computed(() => {
+    if (!isOnlineMode.value) return !pendingModal.value
+    return !pendingModal.value || isMyPendingEvent.value
+  })
+
   const canRollDice = computed(() => {
     if (isOnlineMode.value) {
-      // 联机模式：只有轮到自己且无弹窗时可掷骰
-      return isMyTurn.value && !pendingModal.value && (state.value.phase === 'idle' || state.value.phase === 'event')
+      // 联机模式：轮到自己且无阻塞弹窗时可掷骰
+      return isMyTurn.value && noBlockingModal.value && (state.value.phase === 'idle' || state.value.phase === 'event')
     }
     const p = currentPlayer.value
     return p && !p.isAI && !p.bankrupt && !pendingModal.value && (state.value.phase === 'idle' || state.value.phase === 'event')
@@ -88,7 +95,7 @@ export const useGameStore = defineStore('game', () => {
 
   const canManageAssets = computed(() => {
     if (isOnlineMode.value) {
-      return isMyTurn.value && !pendingModal.value
+      return isMyTurn.value && noBlockingModal.value
     }
     const p = currentPlayer.value
     return p && !p.isAI && !p.bankrupt && state.value.phase === 'idle' && !pendingModal.value
@@ -96,7 +103,7 @@ export const useGameStore = defineStore('game', () => {
 
   const canSkipTurn = computed(() => {
     if (isOnlineMode.value) {
-      return isMyTurn.value && !pendingModal.value
+      return isMyTurn.value && noBlockingModal.value
     }
     const p = currentPlayer.value
     return p && !p.isAI && !p.bankrupt && !pendingModal.value && (state.value.phase === 'idle' || state.value.phase === 'event')

@@ -13,6 +13,9 @@ const showLeaveConfirm = ref(false)
 const showDisbandConfirm = ref(false)
 const errorMsg = ref('')
 
+// 游戏是否进行中（用于判断显示"继续游戏"按钮）
+const gameInProgress = computed(() => onlineStore.gameStarted && status.value === 'playing')
+
 const isHost = computed(() => onlineStore.isHost)
 const roomKey = computed(() => onlineStore.roomKey)
 const players = computed(() => onlineStore.roomState?.players || [])
@@ -62,8 +65,20 @@ onMounted(() => {
   }))
 })
 
+// 标记：是否主动继续游戏（防止 onUnmounted 时误退房间）
+let isContinuingGame = false
+
 onUnmounted(() => {
   unsub.forEach(fn => fn())
+  // 划出/关闭联机大厅 = 退出房间（除非是主动点"继续游戏"跳转）
+  if (!isContinuingGame && onlineStore.roomKey) {
+    try {
+      onlineSDK.leaveRoom()
+      onlineSDK.disconnect()
+    } catch (e) { /* ignore */ }
+    onlineStore.reset()
+    gameStore.setOnlineMode(false)
+  }
 })
 
 function copyKey() {
@@ -84,11 +99,18 @@ function handleStart() {
   onlineSDK.startGame()
 }
 
+// 继续游戏：从大厅重新进入游戏界面（不退房间）
+function continueGame() {
+  isContinuingGame = true
+  router.push('/game')
+}
+
 function handleLeave() {
   showLeaveConfirm.value = true
 }
 
 function confirmLeave() {
+  isContinuingGame = true // 标记主动离开，阻止 onUnmounted 重复处理
   showLeaveConfirm.value = false
   onlineSDK.leaveRoom()
   onlineSDK.disconnect()
@@ -154,10 +176,20 @@ function getSeatPlayers() {
       <p v-if="errorMsg" class="error-msg">{{ errorMsg }}</p>
 
       <div class="action-buttons">
-        <button v-if="isHost" class="btn-start" :disabled="!canStart" @click="handleStart">开始游戏</button>
-        <button class="btn-leave" @click="isHost ? handleDisband() : handleLeave()">
-          {{ isHost ? '解散房间' : '离开房间' }}
-        </button>
+        <!-- 游戏进行中：显示继续游戏 + 退出房间 -->
+        <template v-if="gameInProgress">
+          <button class="btn-start" @click="continueGame">▶️ 继续游戏</button>
+          <button class="btn-leave" @click="isHost ? handleDisband() : handleLeave()">
+            {{ isHost ? '解散房间' : '退出房间' }}
+          </button>
+        </template>
+        <!-- 等待中：房主开始游戏 + 离开/解散 -->
+        <template v-else>
+          <button v-if="isHost" class="btn-start" :disabled="!canStart" @click="handleStart">开始游戏</button>
+          <button class="btn-leave" @click="isHost ? handleDisband() : handleLeave()">
+            {{ isHost ? '解散房间' : '离开房间' }}
+          </button>
+        </template>
       </div>
     </div>
 

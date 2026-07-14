@@ -6,12 +6,12 @@ import type { CardEffect } from '@/engine/types'
 const store = useGameStore()
 
 const visible = computed(() => {
-  const t = store.pendingModal?.type
+  const t = store.interactivePendingModal?.type
   return t === 'drawChance' || t === 'drawDestiny'
 })
 
-const card = computed(() => store.pendingModal?.card ?? null)
-const isChance = computed(() => store.pendingModal?.type === 'drawChance')
+const card = computed(() => store.interactivePendingModal?.card ?? null)
+const isChance = computed(() => store.interactivePendingModal?.type === 'drawChance')
 
 const effectText = computed(() => {
   const eff: CardEffect | undefined = card.value?.effect

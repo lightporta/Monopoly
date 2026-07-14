@@ -9,7 +9,7 @@ const store = useGameStore()
 
 const player = computed(() => store.currentPlayer)
 
-const pendingEvent = computed(() => store.pendingModal)
+const pendingEvent = computed(() => store.interactivePendingModal)
 
 const showWaiting = ref(false)
 const showTradeResult = ref(false)

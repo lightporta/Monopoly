@@ -1,10 +1,28 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useGameStore } from '@/stores/gameStore'
 
 const store = useGameStore()
 
 const showRules = ref(false)
+const isMobile = ref(false)
+
+function checkMobile() {
+  isMobile.value = window.innerWidth < 768
+}
+onMounted(() => {
+  checkMobile()
+  window.addEventListener('resize', checkMobile)
+})
+onUnmounted(() => {
+  window.removeEventListener('resize', checkMobile)
+})
+
+// 移动端联机模式：隐藏游戏界面的退出按钮（用系统手势划出即可）
+const showExitBtn = computed(() => {
+  if (store.isOnlineMode && isMobile.value) return false
+  return true
+})
 
 const turnInfo = computed(() => {
   const p = store.currentPlayer
@@ -40,7 +58,7 @@ const ecologyStatus = computed(() => store.ecologyStatus)
     </div>
     <div class="top-actions">
       <button class="rules-btn" @click="showRules = true">📋 规则</button>
-      <button class="exit-btn" @click="store.requestExit()">
+      <button v-if="showExitBtn" class="exit-btn" @click="store.requestExit()">
         <span>🚪</span><span>退出</span>
       </button>
     </div>

@@ -173,7 +173,10 @@ export class GameEngine {
 
     // 双数可再掷（不切回合）；重掷券在 useReRollTicket action 处理
     this.extraTurnPending = isDouble && this.state.phase !== 'ended';
-    if (!isDouble && this.state.phase !== 'ended') {
+    // 仅在没有待处理交互事件且非双数时才切换回合（与单机 Game.ts 一致）
+    // 若落格产生了 pendingEvent（购买/租房/传送/抽卡），需等玩家通过 buy/decline/payRent 解决后
+    // 由 endTurn 触发 nextTurn，避免 currentPlayerIndex 已切换但 pendingEvent 还引用旧玩家
+    if (!isDouble && !this.state.pendingEvent && this.state.phase !== 'ended') {
       this.nextTurn();
     }
 
@@ -260,6 +263,7 @@ export class GameEngine {
 
     if (!owner) {
       // 无主：设置 pendingEvent 等待玩家决定买/放弃
+      this.state.phase = 'event';
       this.state.pendingEvent = { type: 'buyProperty', playerId: playerIndex, propertyId: prop.id, price: prop.price };
       return { type: 'buyProperty', playerId: playerIndex, propertyId: prop.id, price: prop.price };
     }
@@ -267,6 +271,7 @@ export class GameEngine {
       return { type: 'ownProperty', playerId: playerIndex, propertyId: prop.id };
     }
     // 他人地产：设置 pendingEvent 等待玩家决定（租房/买地皮/买房屋）
+    this.state.phase = 'event';
     const level = owner.buildings[prop.id] || 0;
     const rent = this.calculateRent(prop.id, owner.id);
     this.state.pendingEvent = { type: 'landOpponentProperty', playerId: playerIndex, ownerId: owner.id, propertyId: prop.id, rent, level };
@@ -278,6 +283,7 @@ export class GameEngine {
     this.chanceIndex++;
     this.applyCardEffect(playerIndex, card);
     // 设置 pendingEvent 供前端展示卡牌弹窗（联机模式）
+    this.state.phase = 'event';
     this.state.pendingEvent = { type: 'drawChance', playerId: playerIndex, card };
     return { type: 'drawChance', playerId: playerIndex, card };
   }
@@ -287,6 +293,7 @@ export class GameEngine {
     this.destinyIndex++;
     this.applyCardEffect(playerIndex, card);
     // 设置 pendingEvent 供前端展示卡牌弹窗（联机模式）
+    this.state.phase = 'event';
     this.state.pendingEvent = { type: 'drawDestiny', playerId: playerIndex, card };
     return { type: 'drawDestiny', playerId: playerIndex, card };
   }
@@ -302,10 +309,12 @@ export class GameEngine {
       return this.handleCellLanding(playerIndex, board[tp.target]);
     }
     if (tp.mode === 'anyEmpty') {
+      this.state.phase = 'event';
       this.state.pendingEvent = { type: 'teleportAnyEmpty', playerId: playerIndex };
       return { type: 'teleportAnyEmpty', playerId: playerIndex };
     }
     // anyCell
+    this.state.phase = 'event';
     this.state.pendingEvent = { type: 'moveAnyCell', playerId: playerIndex };
     return { type: 'moveAnyCell', playerId: playerIndex };
   }
@@ -318,6 +327,7 @@ export class GameEngine {
       return { type: 'reroll', playerId: playerIndex };
     }
     if (cell.effect === 'anyCell') {
+      this.state.phase = 'event';
       this.state.pendingEvent = { type: 'moveAnyCell', playerId: playerIndex };
       return { type: 'moveAnyCell', playerId: playerIndex };
     }
@@ -505,6 +515,7 @@ export class GameEngine {
     player.buildings[propId] = 0;
     this.addLog(`${player.name} 购买了 ${prop.name}，花费 ¥${prop.price}`);
     this.state.pendingEvent = null;
+    this.state.phase = 'idle';
 
     // 四板块：色块集齐奖励重掷券
     this.checkColorGroupReward(player, prop.colorGroup);
@@ -528,6 +539,7 @@ export class GameEngine {
 
   declineBuy(playerIndex) {
     this.state.pendingEvent = null;
+    this.state.phase = 'idle';
     this.addLog(`${this.state.players[playerIndex].name} 放弃购买`);
     return { state: this.getState() };
   }
@@ -605,6 +617,7 @@ export class GameEngine {
     buyer.properties.push(propId);
     buyer.buildings[propId] = level;
     this.state.pendingEvent = null;
+    this.state.phase = 'idle';
     this.addLog(`${buyer.name} 以 ¥${totalPrice} 向 ${seller.name} 购买 ${prop.name}`);
     this.checkColorGroupReward(buyer, prop.colorGroup);
     this.checkIronTriangle(buyerIndex);
@@ -626,6 +639,7 @@ export class GameEngine {
     seller.buildings[propId] = 0;
     buyer.buildings[propId] = level;
     this.state.pendingEvent = null;
+    this.state.phase = 'idle';
     this.addLog(`${buyer.name} 以 ¥${buildingPrice} 购买 ${prop.name} 上的${level}级建筑`);
     return { state: this.getState() };
   }
@@ -641,6 +655,7 @@ export class GameEngine {
     if (visitor.freeRentTickets > 0) {
       visitor.freeRentTickets--;
       this.state.pendingEvent = null;
+    this.state.phase = 'idle';
       this.addLog(`${visitor.name} 使用免租券，免付 ${owner.name} 的租金`);
       return { state: this.getState() };
     }
@@ -649,6 +664,7 @@ export class GameEngine {
     visitor.cash -= rent;
     owner.cash += rent;
     this.state.pendingEvent = null;
+    this.state.phase = 'idle';
     this.addLog(`${visitor.name} 向 ${owner.name} 支付 ${prop.name} 租金 ¥${rent}`);
     if (visitor.cash < 0) this.checkBankruptcy(visitorIndex);
     // 收租方资产增加，可能触发资产胜利
@@ -662,6 +678,7 @@ export class GameEngine {
     if (targetIndex < 0 || targetIndex >= board.length) return { error: '无效目标' };
     player.position = targetIndex;
     this.state.pendingEvent = null;
+    this.state.phase = 'idle';
     this.addLog(`${player.name} 移动至 ${board[targetIndex].name}`);
     const event = this.handleCellLanding(playerIndex, board[targetIndex]);
     return { state: this.getState(), event };
@@ -957,6 +974,7 @@ export class GameEngine {
       this.state.currentPlayerIndex = this.state.currentPlayerIndex % this.state.players.length;
       // 清除待处理事件（退出者的事件不再有效）
       this.state.pendingEvent = null;
+    this.state.phase = 'idle';
     } else if (playerIndex < this.state.currentPlayerIndex) {
       // 删除的在当前操作者之前：当前索引前移
       this.state.currentPlayerIndex -= 1;
@@ -993,6 +1011,7 @@ export class GameEngine {
   endTurn(playerIndex) {
     if (playerIndex !== this.state.currentPlayerIndex) return { error: '不是你的回合' };
     this.state.pendingEvent = null;
+    this.state.phase = 'idle';
     this.nextTurn();
     return { state: this.getState() };
   }

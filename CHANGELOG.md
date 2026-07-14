@@ -1,5 +1,22 @@
 # 更新日志
 
+## v3.6.0 - 联机回合流转彻底修复 + 移动端退出逻辑（2026-07-14）
+
+### 联机回合三个根因修复
+1. **服务端 rollDice 状态错乱**（根因）：落格设 pendingEvent 后非双数时立即 nextTurn() 切换 currentPlayerIndex，导致广播状态 currentPlayerIndex=新玩家 但 pendingEvent=旧玩家。修复：nextTurn 仅在 `!isDouble && !pendingEvent` 时调用，交互事件由 endTurn 触发（与单机一致）
+2. **前端按钮卡死**（根因）：canRollDice/canManageAssets/canSkipTurn 用未过滤的 pendingModal，别人的 pendingEvent 锁住自己按钮。修复：改用 `noBlockingModal`（`!pendingModal || isMyPendingEvent`），别人的事件不锁我的按钮
+3. **服务端 phase 状态机缺失**：引擎从不设 phase='event'。修复：handleCellLanding 设 pendingEvent 时同步 phase='event'；buy/decline/payRent/teleport/endTurn 清 pendingEvent 时 phase='idle'
+
+### 移动端退出逻辑
+- 游戏界面 TopBar：联机+移动端隐藏"退出"按钮（用系统手势划出即可）
+- 联机大厅 OnlineRoomView：游戏进行中显示"▶️ 继续游戏"+"🚪 退出房间"两个按钮
+- 划出/关闭联机大厅 = 退出房间（onUnmounted 自动发 room:leave，与点"退出房间"逻辑一致）
+
+### 前端弹窗双保险
+- BuyPropertyModal/CardModal/TeleportSelectModal/LandedOnOpponentModal 的 visible 改用 interactivePendingModal（与 GameView v-if 过滤一致）
+
+---
+
 ## v3.5.1 - 联机回合隔离修复（服务端权威校验）（2026-07-14）
 
 ### 核心修复：服务端统一回合校验

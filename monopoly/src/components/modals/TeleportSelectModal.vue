@@ -6,11 +6,11 @@ import type { Property } from '@/engine/types'
 const store = useGameStore()
 
 const visible = computed(() => {
-  const t = store.pendingModal?.type
+  const t = store.interactivePendingModal?.type
   return t === 'teleportAnyEmpty' || t === 'moveAnyCell'
 })
 
-const mode = computed(() => store.pendingModal?.type ?? '')
+const mode = computed(() => store.interactivePendingModal?.type ?? '')
 
 const title = computed(() =>
   mode.value === 'teleportAnyEmpty' ? '选择一处空地传送' : '选择目标格子移动'
