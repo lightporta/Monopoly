@@ -101,12 +101,23 @@ onMounted(() => {
       onlineStore.gameStarted = false
       router.push('/online-room')
     }))
-    // 房主开下一局：重新进入游戏界面
+    // 房主开下一局：重新进入游戏界面，并刷新自己的座位号
     onlineUnsubs.push(onlineSDK.on('room:started', (data: any) => {
       store.showVictory = false
-      if (data.playerSeats) onlineStore.setGameStarted(data.playerSeats)
+      if (data.playerSeats) {
+        onlineStore.setGameStarted(data.playerSeats)
+        // 重新计算自己的引擎内 playerIndex（防跨局残留）
+        const myEngineIndex = data.playerSeats.findIndex((s: any) => s.playerId === onlineSDK.playerId)
+        if (myEngineIndex >= 0) store.setMyPlayerId(myEngineIndex)
+      }
       if (data.gameState) {
         store.applyOnlineState(data.gameState)
+      }
+    }))
+    // 服务端错误提示（如"不是你的回合"）：显示为 toast，避免静默失败
+    onlineUnsubs.push(onlineSDK.on('room:error', (payload: any) => {
+      if (payload?.message) {
+        store.showPlayerLeftNotice(payload.message)
       }
     }))
   }

@@ -1,5 +1,22 @@
 # 更新日志
 
+## v3.5.1 - 联机回合隔离修复（服务端权威校验）（2026-07-14）
+
+### 核心修复：服务端统一回合校验
+- **根因**：`server/engine.js handleGameAction` 计算了 `isMyTurn` 但 switch 里从未使用——只有 rollDice/endTurn 自校验，其他 17 个 action（buy/build/mortgage/teleport/payRent 等）不校验回合，非当前玩家的操作会被执行
+- **修复**：在 handleGameAction 的 switch 前统一拦截——游戏进行中时，所有 action 都要求 `playerIndex === currentPlayerIndex`，否则返回 `{ error: '不是你的回合' }`。服务端成为联机回合隔离的权威防线
+
+### 前端加固
+- `gameStore.ts rollDice`：联机分支前显式校验 isMyTurn，不满足时恢复 diceAnimating 并 return
+- `GameView.vue`：联机模式新增 `room:error` 监听，服务端错误显示为 toast；`room:started` 刷新 myPlayerId 防跨局残留
+
+### 文档升级到 V3.5
+- PRD/game-design/TechnicalArchitecture 升级到 v3.5（旧 v3.4 删除）
+- PRD 补充联机回合隔离与房间生命周期章节
+- README 文档索引更新
+
+---
+
 ## v3.5.0 - 联机核心修复：回合隔离 + 统一房间生命周期（2026-07-14）
 
 ### Bug 修复：两边同步问题（核心）

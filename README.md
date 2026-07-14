@@ -256,9 +256,9 @@ npm run build
 
 | 文档 | 说明 |
 |---|---|
-| [📋 PRD V3.4](./docs/design/PRD-v3.4.md) | 产品需求文档（三条件胜负/AI三档/四板块） |
-| [🏗️ 技术架构 V3.4](./docs/design/TechnicalArchitecture-v3.4.md) | 技术架构文档（引擎设计/数据结构/联机协议） |
-| [🎮 游戏设计 V3.4](./docs/design/game-design-v3.4.md) | 完整游戏规则（三条件胜负/AI三档/四板块） |
+| [📋 PRD V3.5](./docs/design/PRD-v3.5.md) | 产品需求文档（联机回合隔离/三条件胜负/AI三档） |
+| [🏗️ 技术架构 V3.5](./docs/design/TechnicalArchitecture-v3.5.md) | 技术架构文档（引擎设计/数据结构/联机协议） |
+| [🎮 游戏设计 V3.5](./docs/design/game-design-v3.5.md) | 完整游戏规则（联机回合隔离/三条件胜负/AI三档） |
 | [🚀 部署指南](./docs/deployment-guide.md) | 云端部署（含学生优惠/PM2/Nginx/HTTPS） |
 | [🛠️ 部署与运维](./docs/operations-guide.md) | 面向部署者的运维指南（查看状态/日志/更新） |
 | [📝 更新日志](./CHANGELOG.md) | 版本变更记录 |
@@ -311,7 +311,7 @@ npm run build
 
 ### Q5: 如何添加新功能？
 
-1. 修改 `docs/design/game-design-v3.4.md` 更新规则文档
+1. 修改 `docs/design/game-design-v3.5.md` 更新规则文档
 2. 修改 `src/data/*.json` 添加数据配置
 3. 修改 `src/engine/*.ts` 实现核心逻辑
 4. 修改 `src/stores/gameStore.ts` 添加状态管理

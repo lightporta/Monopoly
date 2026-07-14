@@ -999,8 +999,14 @@ export class GameEngine {
 
   // ============ 统一 action 入口 ============
   handleGameAction(playerIndex, action, params) {
-    // 校验是否该玩家回合（非回合操作：资产管理类、投资类允许任何时候？按前端逻辑只允许自己回合掷骰前）
-    const isMyTurn = playerIndex === this.state.currentPlayerIndex && this.state.phase !== 'ended';
+    // 统一回合校验：游戏进行中时，所有游戏内 action 都必须是当前回合玩家发起
+    // 这是联机回合隔离的服务端权威防线（前端 canRollDice/canManageAssets 是第一道）
+    if (this.state.phase !== 'ended') {
+      const isMyTurn = playerIndex === this.state.currentPlayerIndex;
+      if (!isMyTurn) {
+        return { error: '不是你的回合' };
+      }
+    }
     switch (action) {
       case 'roll':
         return this.rollDice(playerIndex);

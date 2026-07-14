@@ -188,6 +188,11 @@ export const useGameStore = defineStore('game', () => {
     if (!canRollDice.value) return
     // 联机模式：发 action 到服务端，状态由 game:state 广播回来
     if (isOnlineMode.value) {
+      // 防御性校验：只有轮到自己才能掷骰（canRollDice 已检查，这里显式兜底）
+      if (!isMyTurn.value) {
+        diceAnimating.value = false
+        return
+      }
       diceAnimating.value = true
       sendOnlineAction('roll')
       return
