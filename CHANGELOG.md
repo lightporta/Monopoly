@@ -27,8 +27,8 @@
 - `gameStore.ts rollDice`：联机分支前显式校验 isMyTurn，不满足时恢复 diceAnimating 并 return
 - `GameView.vue`：联机模式新增 `room:error` 监听，服务端错误显示为 toast；`room:started` 刷新 myPlayerId 防跨局残留
 
-### 文档升级到 V3.5
-- PRD/game-design/TechnicalArchitecture 升级到 v3.5（旧 v3.4 删除）
+### 文档升级到 V3.6
+- PRD/game-design/TechnicalArchitecture 升级到 v3.6（旧 v3.5 删除）
 - PRD 补充联机回合隔离与房间生命周期章节
 - README 文档索引更新
 
