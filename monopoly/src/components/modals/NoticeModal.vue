@@ -1,7 +1,17 @@
 <script setup lang="ts">
+import { watch } from 'vue'
 import { useGameStore } from '@/stores/gameStore'
 
 const store = useGameStore()
+
+// 显示提示后 1s 自动关闭（房间解散/玩家退出等场景）
+watch(() => store.showRoomDisbanded, (visible) => {
+  if (visible) {
+    setTimeout(() => {
+      store.dismissRoomDisbanded()
+    }, 1000)
+  }
+})
 </script>
 
 <template>

@@ -34,16 +34,26 @@ const showSideDrawer = ref(false)
 const isMobile = ref(false)
 const showInvest = ref(false)
 
-const showBuyProperty = computed(() => store.pendingModal?.type === 'buyProperty')
+// 联机模式：只有"我的待处理事件"才显示交互弹窗（interactivePendingModal 在非自己回合返回 null）
+const interactive = computed(() => store.interactivePendingModal)
+const showBuyProperty = computed(() => interactive.value?.type === 'buyProperty')
 const showCard = computed(() => {
-  const t = store.pendingModal?.type
+  const t = interactive.value?.type
   return t === 'drawChance' || t === 'drawDestiny'
 })
 const showTeleport = computed(() => {
-  const t = store.pendingModal?.type
+  const t = interactive.value?.type
   return t === 'teleportAnyEmpty' || t === 'moveAnyCell'
 })
-const showLandedOnOpponent = computed(() => store.pendingModal?.type === 'landOpponentProperty')
+const showLandedOnOpponent = computed(() => interactive.value?.type === 'landOpponentProperty')
+
+// 联机观战提示：非自己回合且有待处理事件时，显示"等待 XXX 操作..."
+const waitingForPlayer = computed(() => {
+  if (!store.isOnlineMode || !store.pendingModal || store.isMyPendingEvent) return null
+  const pid = store.pendingModal.playerId
+  const p = store.state.players.find(pl => pl.id === pid) || store.state.players[pid]
+  return p ? p.name : null
+})
 
 function checkMobile() {
   isMobile.value = window.innerWidth < 768
@@ -81,6 +91,16 @@ onMounted(() => {
       store.notifyRoomDisbanded(isHost ? '你已解散该房间' : '房主已解散该房间')
       router.push('/')
     }))
+    // 玩家退出房间：提示剩余玩家（1s 自动消失）
+    onlineUnsubs.push(onlineSDK.on('player:left', (data: any) => {
+      if (data?.playerName) store.showPlayerLeftNotice(data.playerName)
+    }))
+    // 退到只剩房主：房主回到房间等待界面
+    onlineUnsubs.push(onlineSDK.on('room:returned_to_lobby', (data: any) => {
+      onlineStore.setRoomState(data)
+      onlineStore.gameStarted = false
+      router.push('/online-room')
+    }))
     // 房主开下一局：重新进入游戏界面
     onlineUnsubs.push(onlineSDK.on('room:started', (data: any) => {
       store.showVictory = false
@@ -102,6 +122,17 @@ onUnmounted(() => {
 <template>
   <div class="game-view">
     <TopBar />
+
+    <!-- 联机观战提示：等待其他玩家操作 -->
+    <div v-if="waitingForPlayer" class="waiting-banner">
+      ⏳ 等待 {{ waitingForPlayer }} 操作...
+    </div>
+    <!-- 联机玩家退出提示（1s 自动消失） -->
+    <Transition name="fade">
+      <div v-if="store.playerLeftNotice" class="player-left-toast">
+        {{ store.playerLeftNotice }}
+      </div>
+    </Transition>
 
     <!-- 桌面端布局：棋盘 + 右侧面板 -->
     <template v-if="!isMobile">
@@ -499,5 +530,42 @@ onUnmounted(() => {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* 联机观战提示条 */
+.waiting-banner {
+  position: fixed;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  background: rgba(33, 150, 243, 0.95);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 20px;
+  border-radius: 9999px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  animation: pulse 1.8s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.85; }
+  50% { opacity: 1; }
+}
+
+/* 联机玩家退出提示（toast） */
+.player-left-toast {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1100;
+  background: rgba(244, 67, 54, 0.95);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  padding: 14px 28px;
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 </style>

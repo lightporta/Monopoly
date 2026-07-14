@@ -254,50 +254,87 @@ function handleJoin(ws, payload, reqId) {
 function handleLeave(ws, reqId) {
   const info = clients.get(ws);
   if (!info) return;
-  const { playerId, roomKey } = info;
-  const room = rooms.get(roomKey);
+  const room = rooms.get(info.roomKey);
   if (!room) return;
+  // 主动离开：清理 ws 映射后走统一退出逻辑
+  handlePlayerExit(room, info.playerId, 'leave');
+}
 
+/**
+ * 统一玩家退出/解散处理（waiting/playing/ended 三阶段同一套逻辑）。
+ * - 房主退出 = 解散房间（全员回首页 + 提示）
+ * - 普通玩家退出：
+ *   - playing 阶段：引擎移除玩家（地产归银行+补位），广播 player:left + game:state
+ *   - waiting/ended 阶段：从 room.players 移除，广播 room:state
+ *   - 剩余<=1人（仅房主）：房主回等待界面
+ *   - 剩余0人：房间销毁
+ */
+function handlePlayerExit(room, playerId, reason) {
   const player = room.players.find(p => p.playerId === playerId);
   if (!player) return;
+  const roomKey = room.roomKey;
+  const playerName = player.playerName;
 
+  // 清理该玩家的 ws 映射与重连定时器
+  if (player.ws) clients.delete(player.ws);
+  const timerKey = `${roomKey}:${playerId}`;
+  if (reconnectTimers.has(timerKey)) {
+    clearTimeout(reconnectTimers.get(timerKey));
+    reconnectTimers.delete(timerKey);
+  }
+
+  // 房主退出/解散 = 解散整个房间（三阶段一致）
   if (player.isHost) {
-    disbandRoom(room, 'host_disband');
+    disbandRoom(room, reason === 'leave' ? 'host_disband' : reason);
     return;
   }
 
-  player.connected = false;
-  player.ws = null;
-  clients.delete(ws);
+  // 普通玩家退出：从 room.players 移除
+  room.players = room.players.filter(p => p.playerId !== playerId);
 
-  const connectedPlayers = room.players.filter(p => p.connected);
-  if (connectedPlayers.length === 0) {
+  // playing 阶段：引擎同步移除该玩家
+  if (room.status === 'playing' && room.engine) {
+    const sortedConnected = room.players
+      .filter(p => p.connected)
+      .sort((a, b) => a.seatIndex - b.seatIndex);
+    // 找到退出者在引擎中对应的 playerIndex（基于原排序快照）
+    // 引擎内 playerIndex = 开局时 connected 排序后的下标；退出后需重算
+    // 直接通知剩余玩家：广播 player:left + 新状态（引擎 removePlayer 已处理）
+    // 注意：需用退出前的引擎 playerIndex 调 removePlayer
+    const engineResult = room.engine.removePlayer(player._engineIndex ?? -1);
+    room.gameState = engineResult.state || room.engine.getState();
+    // 通知剩余玩家
+    broadcastRoom(roomKey, 'player:left', { playerName, reason });
+    broadcastRoom(roomKey, 'game:state', room.gameState);
+
+    const connectedCount = room.players.filter(p => p.connected).length;
+    if (connectedCount <= 1) {
+      // 仅剩房主或无人：游戏结束，房主回等待界面
+      const survivor = room.players.find(p => p.connected);
+      if (survivor && survivor.isHost) {
+        room.status = 'waiting';
+        room.engine = null;
+        room.gameState = null;
+        broadcastRoom(roomKey, 'room:returned_to_lobby', getPublicRoomState(room));
+      } else {
+        rooms.delete(roomKey);
+        console.log(`房间销毁: ${roomKey}（退出后无人）`);
+      }
+    }
+    console.log(`玩家退出(游戏中): ${roomKey}，${playerName}`);
+    return;
+  }
+
+  // waiting/ended 阶段：广播 room:state
+  const connectedCount = room.players.filter(p => p.connected).length;
+  if (connectedCount === 0) {
     rooms.delete(roomKey);
     console.log(`房间销毁: ${roomKey}（无人）`);
-  } else if (connectedPlayers.length === 1 && room.status === 'waiting') {
-    const host = room.players.find(p => p.isHost && p.connected);
-    if (host) {
-      send(host.ws, 'game:event', {
-        event: 'modal',
-        data: { modalId: 'alone_in_room' }
-      });
-    }
-    broadcastRoom(roomKey, 'room:state', getPublicRoomState(room));
   } else {
+    broadcastRoom(roomKey, 'player:left', { playerName, reason });
     broadcastRoom(roomKey, 'room:state', getPublicRoomState(room));
   }
-
-  if (room.status === 'playing' && connectedPlayers.length === 1) {
-    const last = connectedPlayers[0];
-    if (last) {
-      send(last.ws, 'game:event', {
-        event: 'modal',
-        data: { modalId: 'alone_in_room' }
-      });
-    }
-  }
-
-  console.log(`玩家离开: ${roomKey}，${player.playerName}`);
+  console.log(`玩家离开: ${roomKey}，${playerName}`);
 }
 
 function handleDisband(ws, reqId) {
@@ -344,10 +381,13 @@ function handleStart(ws, reqId) {
   }
 
   const engine = new GameEngine();
-  const playerConfigs = room.players
+  // 参与游戏的玩家按座位排序，引擎用数组下标作为 playerIndex
+  const sortedConnected = room.players
     .filter(p => p.connected)
-    .sort((a, b) => a.seatIndex - b.seatIndex)
-    .map(p => ({ name: p.playerName, seatIndex: p.seatIndex }));
+    .sort((a, b) => a.seatIndex - b.seatIndex);
+  // 记录每个玩家在引擎中的 playerIndex（removePlayer 时需要）
+  sortedConnected.forEach((p, i) => { p._engineIndex = i; });
+  const playerConfigs = sortedConnected.map(p => ({ name: p.playerName, seatIndex: p.seatIndex }));
 
   const gameState = engine.initGame(playerConfigs);
   room.engine = engine;
@@ -356,10 +396,7 @@ function handleStart(ws, reqId) {
 
   broadcastRoom(roomKey, 'room:started', {
     gameState,
-    playerSeats: room.players
-      .filter(p => p.connected)
-      .sort((a, b) => a.seatIndex - b.seatIndex)
-      .map(p => ({ playerId: p.playerId, seatIndex: p.seatIndex, playerName: p.playerName }))
+    playerSeats: sortedConnected.map(p => ({ playerId: p.playerId, seatIndex: p.seatIndex, playerName: p.playerName }))
   });
   broadcastRoom(roomKey, 'game:state', gameState);
   console.log(`游戏开始: ${roomKey}`);
@@ -379,10 +416,11 @@ function handleRestart(ws, reqId) {
   }
 
   const engine = new GameEngine();
-  const playerConfigs = room.players
+  const sortedConnected = room.players
     .filter(p => p.connected)
-    .sort((a, b) => a.seatIndex - b.seatIndex)
-    .map(p => ({ name: p.playerName, seatIndex: p.seatIndex }));
+    .sort((a, b) => a.seatIndex - b.seatIndex);
+  sortedConnected.forEach((p, i) => { p._engineIndex = i; });
+  const playerConfigs = sortedConnected.map(p => ({ name: p.playerName, seatIndex: p.seatIndex }));
 
   const gameState = engine.initGame(playerConfigs);
   room.engine = engine;
@@ -391,10 +429,7 @@ function handleRestart(ws, reqId) {
 
   broadcastRoom(roomKey, 'room:started', {
     gameState,
-    playerSeats: room.players
-      .filter(p => p.connected)
-      .sort((a, b) => a.seatIndex - b.seatIndex)
-      .map(p => ({ playerId: p.playerId, seatIndex: p.seatIndex, playerName: p.playerName }))
+    playerSeats: sortedConnected.map(p => ({ playerId: p.playerId, seatIndex: p.seatIndex, playerName: p.playerName }))
   });
   broadcastRoom(roomKey, 'game:state', gameState);
   console.log(`游戏重开: ${roomKey}`);
@@ -466,28 +501,10 @@ function handleDisconnect(ws) {
     const r = rooms.get(roomKey);
     if (!r) return;
     const p = r.players.find(pp => pp.playerId === playerId);
+    // 30s 未重连：统一走 handlePlayerExit（移除玩家/解散房间）
     if (p && !p.connected) {
-      r.players = r.players.filter(pp => pp.playerId !== playerId);
-      const connectedCount = r.players.filter(pp => pp.connected).length;
-      if (connectedCount === 0) {
-        rooms.delete(roomKey);
-        console.log(`房间销毁: ${roomKey}（超时无人）`);
-      } else if (p.isHost) {
-        disbandRoom(r, 'host_disconnect');
-      } else {
-        broadcastRoom(roomKey, 'room:state', getPublicRoomState(r));
-        if (r.status === 'playing' && connectedCount === 1) {
-          const last = r.players.find(pp => pp.connected);
-          if (last) {
-            send(last.ws, 'game:event', {
-              event: 'modal',
-              data: { modalId: 'alone_in_room' }
-            });
-          }
-        }
-      }
       reconnectTimers.delete(timerKey);
-      console.log(`玩家超时移除: ${roomKey}，${p.playerName}`);
+      handlePlayerExit(r, playerId, 'disconnect_timeout');
     }
   }, 30000);
   reconnectTimers.set(timerKey, timeout);

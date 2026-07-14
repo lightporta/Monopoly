@@ -33,10 +33,11 @@ onMounted(() => {
     onlineStore.setGameStarted(data.playerSeats)
     gameStore.setOnlineGameState(data.gameState)
     gameStore.setOnlineMode(true)
-    // 记录自己的座位号（联机模式判断"是否轮到我"用）
-    const mySeat = data.playerSeats?.find((s: any) => s.playerId === onlineSDK.playerId)
-    if (mySeat) {
-      gameStore.setMyPlayerId(mySeat.seatIndex)
+    // 记录自己的引擎内 playerIndex（= playerSeats 数组下标，引擎用数组下标做玩家 id）
+    // 注意：不能用 seatIndex，因为引擎 initGame 按数组下标重排，seatIndex 可能与引擎不一致
+    const myEngineIndex = data.playerSeats?.findIndex((s: any) => s.playerId === onlineSDK.playerId)
+    if (myEngineIndex !== undefined && myEngineIndex >= 0) {
+      gameStore.setMyPlayerId(myEngineIndex)
     }
     // 应用服务端初始游戏状态（替代本地 engine.init）
     gameStore.applyOnlineState(data.gameState)

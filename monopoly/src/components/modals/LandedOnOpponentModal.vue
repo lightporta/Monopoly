@@ -153,17 +153,17 @@ function onResultClose() {
           </div>
           <div class="prompt">此地有对方资产，是否需要购买地皮/购房（如果有）/租赁？</div>
           <div class="actions">
-            <button class="btn-action btn-buy-prop" :disabled="!canBuyProperty()" @click="initTrade('buyProperty')">
+            <button class="btn-action btn-buy-prop" :disabled="!canBuyProperty() || !store.isMyPendingEvent" @click="initTrade('buyProperty')">
               买地皮 (¥{{ buyPropertyPrice() }})
             </button>
-            <button v-if="(pendingEvent.buildingLevel ?? 0) > 0" class="btn-action btn-buy-build" :disabled="!canBuyBuilding()" @click="initTrade('buyBuilding')">
+            <button v-if="(pendingEvent.buildingLevel ?? 0) > 0" class="btn-action btn-buy-build" :disabled="!canBuyBuilding() || !store.isMyPendingEvent" @click="initTrade('buyBuilding')">
               买房屋 (¥{{ buyBuildingPrice() }})
             </button>
-            <button class="btn-action btn-rent" :disabled="!canRent()" @click="initTrade('rent')">
+            <button class="btn-action btn-rent" :disabled="!canRent() || !store.isMyPendingEvent" @click="initTrade('rent')">
               租房 (¥{{ rentPrice() }})
             </button>
           </div>
-          <button class="btn-no-need" @click="handleNoNeed">不需要</button>
+          <button class="btn-no-need" :disabled="!store.isMyPendingEvent" @click="handleNoNeed">不需要</button>
         </div>
       </div>
 

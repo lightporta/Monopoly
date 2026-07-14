@@ -920,6 +920,59 @@ export class GameEngine {
     this.checkAllVictory();
   }
 
+  /**
+   * 移除玩家（联机版：玩家中途退出房间时调用）。
+   * - 该玩家所有地产/建筑/装备/养殖/投资归银行（变无主空地）
+   * - 从 state.players 数组删除，修正 currentPlayerIndex
+   * - 返回新状态（供调用方广播）
+   */
+  removePlayer(playerIndex) {
+    if (playerIndex < 0 || playerIndex >= this.state.players.length) return { state: this.getState() };
+    const player = this.state.players[playerIndex];
+    this.addLog(`${player.name} 已退出房间，所有资产归银行`);
+
+    // 该玩家持有的地产变为无主空地（无需显式清全局 owner 映射，findPropertyOwner 按遍历 players 判定）
+    // 清空该玩家所有资产字段（防御性，即使数组被删也确保对象干净）
+    player.properties = [];
+    player.buildings = {};
+    player.mortgaged = [];
+    player.equipment = [];
+    player.aquaculture = {};
+    player.investments = [];
+    player.foodCards = [];
+    player.freeRentTickets = 0;
+    player.reRollTickets = 0;
+    player.cash = 0;
+
+    // 从玩家数组删除，修正 currentPlayerIndex
+    const wasCurrent = playerIndex === this.state.currentPlayerIndex;
+    this.state.players.splice(playerIndex, 1);
+    if (this.state.players.length === 0) {
+      this.state.phase = 'ended';
+      return { state: this.getState() };
+    }
+    if (wasCurrent) {
+      // 删除的就是当前操作者：currentPlayerIndex 指向同一位置（现在已是下一玩家）
+      // 若越界（删除的是末尾）则回绕到 0
+      this.state.currentPlayerIndex = this.state.currentPlayerIndex % this.state.players.length;
+      // 清除待处理事件（退出者的事件不再有效）
+      this.state.pendingEvent = null;
+    } else if (playerIndex < this.state.currentPlayerIndex) {
+      // 删除的在当前操作者之前：当前索引前移
+      this.state.currentPlayerIndex -= 1;
+    }
+
+    // 单人剩余：标记结束（调用方会处理回等待界面）
+    const alive = this.state.players.filter(p => !p.bankrupt);
+    if (alive.length <= 1 && this.state.phase !== 'ended') {
+      this.state.phase = 'ended';
+      this.state.winner = alive[0] || null;
+      this.state.winReason = '其他玩家全部退出';
+    }
+
+    return { state: this.getState() };
+  }
+
   nextTurn() {
     if (this.state.phase === 'ended') return;
     if (this.extraTurnPending) {

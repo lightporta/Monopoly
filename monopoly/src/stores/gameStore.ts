@@ -59,6 +59,24 @@ export const useGameStore = defineStore('game', () => {
     return state.value.currentPlayerIndex === myPlayerId.value && state.value.phase !== 'ended'
   })
 
+  // 联机模式：当前待处理事件是否该我操作（弹窗隔离核心）
+  const isMyPendingEvent = computed(() => {
+    if (!isOnlineMode.value) return true // 单机模式：所有事件都是我的
+    const pe = pendingModal.value
+    if (!pe) return false
+    // pendingEvent.playerId 是座位号（引擎内 playerIndex），与 myPlayerId 对齐
+    return pe.playerId === myPlayerId.value
+  })
+
+  // 仅在自己的待处理事件时返回 modal（用于触发可交互弹窗）
+  const interactivePendingModal = computed(() => {
+    if (!isOnlineMode.value) return pendingModal.value
+    return isMyPendingEvent.value ? pendingModal.value : null
+  })
+
+  // 联机模式：玩家退出提示（"{昵称}已退出房间"，1s 自动关闭）
+  const playerLeftNotice = ref('')
+
   const canRollDice = computed(() => {
     if (isOnlineMode.value) {
       // 联机模式：只有轮到自己且无弹窗时可掷骰
@@ -157,6 +175,12 @@ export const useGameStore = defineStore('game', () => {
   function dismissRoomDisbanded() {
     showRoomDisbanded.value = false
     roomDisbandedMessage.value = ''
+  }
+
+  /** 显示玩家退出提示（1s 后自动清除） */
+  function showPlayerLeftNotice(name: string) {
+    playerLeftNotice.value = `${name} 已退出房间`
+    setTimeout(() => { playerLeftNotice.value = '' }, 1000)
   }
 
   // 掷骰子
@@ -897,6 +921,10 @@ export const useGameStore = defineStore('game', () => {
     onlineGameState,
     myPlayerId,
     isMyTurn,
+    isMyPendingEvent,
+    interactivePendingModal,
+    playerLeftNotice,
+    showPlayerLeftNotice,
     pendingModal,
     showTurnHandoff,
     showExitConfirm,

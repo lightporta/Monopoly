@@ -1,5 +1,28 @@
 # 更新日志
 
+## v3.5.0 - 联机核心修复：回合隔离 + 统一房间生命周期（2026-07-14）
+
+### Bug 修复：两边同步问题（核心）
+- **根因**：服务端 game:state（含 pendingEvent）广播给所有人，前端弹窗不区分操作者，导致两台设备显示相同弹窗、非当前玩家也能操作
+- **修复**：新增 `isMyPendingEvent`/`interactivePendingModal` 计算属性，交互弹窗（购买/租房/传送）仅在"我的待处理事件"时显示；非自己回合显示观战提示条"⏳ 等待 XXX 操作..."
+- 弹窗按钮加 `isMyPendingEvent` 禁用（双保险）
+- 修复座位错位隐患：`myPlayerId` 改存引擎数组下标（playerSeats.findIndex），而非 room.seatIndex
+
+### 统一房间生命周期（waiting/playing/ended 三阶段同一套逻辑）
+- **统一退出函数 `handlePlayerExit`**：handleLeave/handleDisconnect 全部收敛到此，不再有分散 if-else
+- **房主退出=解散房间**（三阶段一致）：全员回首页 + 提示"房主已解散该房间"/"你已解散该房间"（1s 自动关闭），房间号可二次复用
+- **玩家退出**（三阶段一致）：
+  - playing 阶段：引擎 `removePlayer`（地产归银行、资产清零、座位补位），剩余玩家收到 player:left + game:state + "{昵称}已退出房间"弹窗（1s 关闭）
+  - waiting/ended 阶段：从 room.players 移除，广播 room:state
+  - 退到只剩房主：房主回到房间等待界面（room:returned_to_lobby）
+- `server/engine.js` 新增 `removePlayer(playerId)`：移除玩家、地产归银行、修正 currentPlayerIndex
+- `server/server.js` handleStart/handleRestart 记录 `_engineIndex` 映射，确保 removePlayer 用对引擎下标
+
+### NoticeModal 1s 自动关闭
+- 房间解散/玩家退出提示显示后 1s 自动消失（保留"我已知晓"按钮兜底）
+
+---
+
 ## v3.4.1 - 修复联机电脑端连接被拒（浏览器缓存）（2026-07-14）
 
 ### 问题

@@ -71,10 +71,10 @@ const rentRows = computed(() => {
         <div v-if="!canAfford" class="warn">现金不足，无法购买</div>
 
         <div class="actions">
-          <button class="btn btn-buy" :disabled="!canAfford" @click="store.buyProperty()">
+          <button class="btn btn-buy" :disabled="!canAfford || !store.isMyPendingEvent" @click="store.buyProperty()">
             购买 (¥{{ property.price }})
           </button>
-          <button class="btn btn-decline" @click="store.declineBuy()">放弃</button>
+          <button class="btn btn-decline" :disabled="!store.isMyPendingEvent" @click="store.declineBuy()">放弃</button>
         </div>
       </div>
     </div>
