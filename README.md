@@ -1,336 +1,75 @@
-# 仙境海岸·大富翁
+# Fairy Coast · Monopoly
 
-> 烟台文旅主题大富翁网页游戏
+[English](README.md) · [简体中文](README.zh-CN.md)
 
-## 🎮 游戏简介
+A bilingual Yantai property board game for 2–4 travelers. Play against AI, pass one device between friends, or share a room across devices.
 
-《仙境海岸·大富翁》是一款以山东烟台文旅为主题的网页版大富翁游戏。玩家在36格环形棋盘上掷骰移动、购买地标地产、建造房屋收取过路费，并融合"八仙过海"传送、烟台美食收集、"仙境铁三角"成就胜利等特色玩法。
+Version 4 rebuilds the game around one rules engine. Local games and the authoritative WebSocket server use the same actions, economy, AI and victory calculation. The old client/server engines and embedded production HTML have been removed.
 
-### 特色玩法
+## Run
 
-- 🏝️ **烟台地标**：芝罘湾广场、烟台山、蓬莱阁、养马岛等21处烟台地标
-- ⚡ **传送系统**：烟台山灯塔定向传送、八仙渡海口自由传送、海昌鲸鲨馆再玩一次
-- 🍱 **美食收集**：烟台焖子、蓬莱小面、海鲜疙瘩汤、鲅鱼水饺四种特色美食
-- 🔺 **铁三角胜利**：同时持有烟台山、蓬莱阁、养马岛三处核心地标直接获胜
-- 🤖 **AI对手**：三种难度AI对手（新手导游、本地商人、仙境霸主）
-- 🌐 **联机对战**：支持2-4人跨设备联机对战，WebSocket 实时同步
-- 🌊 **四大海洋板块（V3 新增）**：
-  - 🛢️ **海工装备**：4件装备（钻井平台/深海机器人/监测船/风电塔），过路费加成
-  - 🐚 **海产养殖**：4处养殖地产，3级被动收入，每经过起点结算
-  - 💼 **核电投资**：海阳核电/海上风电场，每回合分红（左下方入口）
-  - 🌿 **海洋生态**：全局生态指数，生态卡影响全局经济
-  - 🎫 **重掷券**：集齐色块奖励重掷券（决策点增强）
+Requires **Node.js 22.12+** and npm. From the repository root:
 
-## 🎮 游戏模式
-
-### 模式一：单机版（同一设备）
-- 与 AI 对战：1-2 位人类玩家 + 1-3 个 AI 对手
-- 真人对战：2-4 位玩家轮流使用同一设备
-
-### 模式二：联机版（不同设备）
-- 创建房间 / 加入房间
-- 房间 Key 分享
-- 最多 4 人同时在线对战
-- 实时同步游戏状态
-
-## 🚀 快速开始
-
-### 环境要求
-
-- Node.js ≥ 18.0.0
-- npm ≥ 9.0.0
-
-### 本地开发
-
-```bash
-# 克隆项目
-git clone <repo-url>
-cd MillionaireGame
-
-# 进入项目目录
-cd monopoly
-
-# 安装依赖
-npm install
-
-# 启动开发服务器
+```sh
+npm ci
 npm run dev
-
-# 访问 http://localhost:5173
 ```
 
-### 生产构建
+Open [localhost:5173](http://localhost:5173). This starts Vite and the Node server; `/ws` is proxied to port 3000. For friends on your LAN, use a production build, which listens on all interfaces by default:
 
-```bash
-# 类型检查 + 生产构建
+```sh
 npm run build
-
-# 产物输出至 dist/ 目录
-```
-
-### 预览构建结果
-
-```bash
-npm run preview
-# 访问 http://localhost:4173
-```
-
-## 📁 项目结构
-
-```
-MillionaireGame/
-├── docs/                      # 项目文档
-│   ├── design/                # 设计文档
-│   │   ├── PRD.md             # 产品需求文档
-│   │   ├── TechnicalArchitecture.md  # 技术架构文档
-│   │   └── game-rules.md      # 完整游戏规则
-│   └── deploy/                # 部署运维文档
-│       ├── deployment-guide.md  # 部署指南
-│       └── operations-guide.md  # 运维指南
-├── monopoly/                  # 前端项目（Vue 3 + Vite + TypeScript）
-│   ├── src/
-│   │   ├── data/              # JSON 静态数据（棋盘/卡牌/地产等）
-│   │   ├── engine/            # 游戏引擎核心逻辑
-│   │   ├── stores/            # Pinia 状态管理
-│   │   ├── online/            # 联机 SDK（WebSocket）
-│   │   ├── components/        # UI 组件（hud/modals/board）
-│   │   ├── views/             # 页面视图
-│   │   ├── router/            # 路由配置
-│   │   └── assets/            # 静态资源
-│   ├── package.json
-│   └── vite.config.ts
-├── server/                    # 服务端（Node.js + WebSocket）
-│   ├── server.js              # 主服务程序（房间管理+WebSocket）
-│   ├── engine.js              # 服务端游戏引擎
-│   ├── data.js                # 游戏数据配置
-│   ├── public/                # 静态文件托管（前端构建产物）
-│   └── package.json
-├── README.md
-└── CHANGELOG.md
-```
-
-## 🎯 游戏规则
-
-### 基本规则
-
-1. 每位玩家初始资金15000元
-2. 掷骰移动，经过起点领2000元并抽美食卡
-3. 购买地产，建造房屋收取过路费
-4. 集齐同色块地产，过路费翻倍
-5. 机会卡获收益，命运卡遇风险
-6. 连续三次掷出双数，送至休息格跳过下一回合
-
-### 胜利条件（三条件任意达成即胜）
-
-- **破产胜利**：使其他所有玩家破产，成为最后存活者
-- **仙境铁三角胜利**：同时持有烟台山、蓬莱阁、养马岛，且每处地标各建 3 座房屋（共 9 座）
-- **资产胜利**：总资产率先突破 ¥30000
-- **扣款加倍**：租金、卡牌罚款统一 ×2.0 计算（盈利项不变）
-
-### 色块分组
-
-| 色块组 | 颜色 | 数量 | 集齐条件 | 加成 |
-|--------|------|------|----------|------|
-| 历史街区 | 🔴 | 4 | 全部集齐 | ×2.0 |
-| 海岸线 | 🔵 | 8 | 任意4块 | ×1.5 |
-| 仙山 | 🟢 | 5 | 全部集齐 | ×2.0 |
-| 温泉 | 🟠 | 4 | 全部集齐 | ×2.0 |
-
-## 🌐 部署方式
-
-### 方式一：单机版（静态文件）
-
-只需前端，无需服务端：
-
-```bash
-cd monopoly
-npm run build
-# 将 dist/index.html 上传至任意静态服务器
-```
-
-### 方式二：联机版（推荐）
-
-需要 Node.js 服务端，支持跨设备联机：
-
-```bash
-# 1. 构建前端
-cd monopoly
-npm install
-npm run build
-
-# 2. 复制到服务端 public 目录
-cp dist/index.html ../server/public/
-
-# 3. 启动服务端
-cd ../server
-npm install
 npm start
-# 访问 http://localhost:3000
 ```
 
-### 方式三：云服务器部署（Linux）
+Open [localhost:3000](http://localhost:3000), or `http://YOUR_LAN_IP:3000` on another device. Create a room, share the six-character code, have the other players join and ready up, then start. Host can add AI seats. Internet play requires an accessible server and preferably HTTPS; this repository does not supply hosting.
 
-```bash
-# 1. 在云服务器上安装 Node.js
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
+For Docker, `docker compose up --build -d` builds and serves both frontend and backend. Use one process/replica. See the [deployment guide](docs/deploy/deployment-guide.en.md) for HTTPS, reverse proxy and environment configuration. Docker, TLS and a real cloud deployment have not been executed as part of the local verification.
 
-# 2. 克隆项目
-git clone <repo-url>
-cd MillionaireGame
+## What changed
 
-# 3. 构建前端
-cd monopoly
-npm install
-npm run build
-cp dist/index.html ../server/public/
+- One dependency-free engine in `shared/`; mandatory rent, legal action guards, automatic liquidation, capped upgrades and one valuation formula.
+- A new responsive Vue interface with Chinese/English switching, property inspection, local autosave, handoff between human players and final standings. It makes no external font or media requests.
+- Authoritative rooms with private resume tokens, stable seat IDs, readiness, host migration, bots, request deduplication and revision checks. Refresh restores the seat; an expired human turn is finished by AI. Leaving explicitly permanently converts that seat to AI.
+- Three deterministic AI policies use legal actions, cash reserves and expected returns. Hard AI estimates landing probabilities, including portals and rest turns. No extra cash, altered dice or rent exemptions.
+- A root lockfile, regression tests, browser tests, simulation tool, CI configuration and deployment files.
 
-# 4. 启动服务端（使用 PM2 后台运行）
-cd ../server
-npm install
-npm install -g pm2
-pm2 start server.js --name monopoly
-pm2 save
-pm2 startup
+The v4 protocol and save format replace v3; old saves and clients are incompatible. This is a deliberate rules rebuild: player trades, auctions, free-choice teleporting, reroll tickets, hotels and instant wealth victory are removed. Houses/farms, equipment, limited energy investments, food, ecology and the landmark triangle remain under simplified shared rules.
 
-# 5. 配置 Nginx 反向代理（可选）
-sudo apt-get install -y nginx
+## Rules at a glance
+
+Start with **¥12,000**. Each turn has one roll, followed by a purchase choice if needed, then property management. Rent and fees settle automatically. Natural laps pay **¥1,200**, food and farm income; portals do not grant a lap reward. Four food tokens redeem for **¥1,000**.
+
+Houses and farms are mutually exclusive, capped at three levels. Collecting a group increases rent by 50%; equipment increases it by 20%. Wind/nuclear shares pay **¥55/¥90** per active turn, with global limits. Ecology affects farm and nuclear income. Insufficient funds trigger sales and mortgages, then bankruptcy; creditors receive only actual recovered money.
+
+The last survivor wins; otherwise, after the configured full-round limit (default **40**), compare net worth simultaneously. Exact ties share victory. The developed landmark triangle adds **3,000 score**, without minting money or ending early. See the [complete rules](docs/design/game-rules.en.md), also available in-game.
+
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Start frontend and backend for development |
+| `npm run build` | Build the frontend into `monopoly/dist/` |
+| `npm start` | Serve the production frontend and `/ws` together |
+| `npm run check` | Run Node regression tests and production build |
+| `npm run simulate -- --seeds 100` | Run reproducible AI matches with rotated seats |
+| `npx playwright install chromium` | Install the browser test runtime |
+| `npm run test:e2e` | Build and test local/online journeys in Chromium |
+
+The built `monopoly/dist/` folder can also be served by a static host for local-only games. Upload the **whole folder**, including `assets/`. Double-clicking `index.html` over `file://` is not supported. Server restart clears online rooms; local saves remain in the browser. No accounts, durable online saves or multi-process coordination are implemented.
+
+## Project layout
+
+```text
+shared/                Bilingual board data, rules, AI and valuation
+monopoly/src/          Vue interface, translation and reconnect client
+server/                HTTP/WebSocket room service and wire protocol
+scripts/               Development runner and AI simulation
+tests/                Engine, client, server and browser regressions
+docs/design/           Rules and architecture in English and Chinese
+docs/deploy/           Deployment and operations in both languages
 ```
 
-**Nginx 配置示例**：
+[Architecture](docs/design/TechnicalArchitecture.en.md) · [Wire protocol](server/PROTOCOL.md) · [Operations](docs/deploy/operations-guide.en.md) · [Validation](docs/validation.md) · [Changelog](CHANGELOG.md)
 
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-    
-    location / {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-### 方式四：单文件离线运行（单机版）
-
-```bash
-cd monopoly
-npm run build
-# dist/index.html 是独立文件，双击即可运行
-```
-
-## 🔌 联机版使用说明
-
-### 创建房间
-1. 首页点击「与真人玩」→「联机版」
-2. 输入昵称
-3. 输入自定义房间 Key（4~10位字母数字）
-4. 点击「创建房间」
-5. 分享房间 Key 给朋友
-
-### 加入房间
-1. 首页点击「与真人玩」→「联机版」
-2. 输入昵称
-3. 输入朋友分享的房间 Key
-4. 点击「加入房间」
-
-### 开始游戏
-- 房主在房间等待页点击「开始游戏」
-- 至少需要 2 名玩家才能开始
-
-## 🛠️ 技术栈
-
-### 前端
-- **框架**：Vue 3 + TypeScript
-- **状态管理**：Pinia
-- **路由**：Vue Router
-- **构建工具**：Vite
-- **样式**：CSS3 + CSS Variables
-- **输出**：单文件 HTML（vite-plugin-singlefile）
-
----
-
-## 📚 文档索引
-
-| 文档 | 说明 |
-|---|---|
-| [📋 PRD](./docs/design/PRD.md) | 产品需求文档 |
-| [🏗️ 技术架构](./docs/design/TechnicalArchitecture.md) | 技术架构文档（引擎设计/数据结构/联机协议） |
-| [🎮 游戏规则](./docs/design/game-rules.md) | 完整游戏规则 |
-| [🚀 部署指南](./docs/deploy/deployment-guide.md) | 云端部署（含 PM2/Nginx/HTTPS） |
-| [🛠️ 运维指南](./docs/deploy/operations-guide.md) | 面向部署者的运维指南（查看状态/日志/更新） |
-| [📝 更新日志](./CHANGELOG.md) | 版本变更记录 |
-
-### 服务端
-- **运行时**：Node.js ≥ 18
-- **WebSocket**：ws 库
-- **HTTP**：原生 http 模块
-- **架构**：HTTP + WebSocket 同进程
-
-## 🐛 常见问题
-
-### Q1: 开发服务器启动失败？
-
-```bash
-# 检查 Node.js 版本
-node -v  # 需 ≥ 18.0.0
-
-# 删除 node_modules 重新安装
-rm -rf node_modules package-lock.json
-npm install
-```
-
-### Q2: 构建失败？
-
-```bash
-# 检查 TypeScript 类型错误
-npx vue-tsc --noEmit
-
-# 清理构建缓存
-rm -rf dist .vite
-npm run build
-```
-
-### Q3: 页面空白？
-
-检查浏览器控制台（F12）查看错误信息，常见原因：
-- 路由模式问题（需使用 hash 模式）
-- 资源路径问题（确保 base 配置正确）
-
-### Q4: 如何修改游戏规则？
-
-规则配置文件位于 `monopoly/src/data/` 目录：
-- `game-config.json`：全局游戏参数（初始资金、过路费倍数等）
-- `board.json`：棋盘格子定义
-- `properties.json`：地产数据
-- `cards-chance.json`：机会卡
-- `cards-destiny.json`：命运卡
-- `cards-food.json`：美食卡
-
-### Q5: 如何添加新功能？
-
-1. 修改 `docs/design/game-design-v3.8.md` 更新规则文档
-2. 修改 `src/data/*.json` 添加数据配置
-3. 修改 `src/engine/*.ts` 实现核心逻辑
-4. 修改 `src/stores/gameStore.ts` 添加状态管理
-5. 修改 `src/components/*.vue` 添加 UI 组件
-
-## 📄 许可证
-
-MIT License
-
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
----
-
-> **烟台文旅主题大富翁游戏**
-> Made with ❤️ for 仙境海岸
-
+AI simulation reports compare fixed policies under specific seeds. They demonstrate reproducibility and termination, not a guaranteed human win rate. Hosted networking, real mobile devices and non-macOS platforms need their own acceptance checks.

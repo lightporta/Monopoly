@@ -1,654 +1,591 @@
-// 仙境海岸·大富翁 联机版服务端
-// WebSocket + HTTP 同进程，房间管理 + 游戏引擎
 import http from 'node:http';
-import fs from 'node:fs';
+import { createReadStream } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import path from 'node:path';
-import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { WebSocketServer } from 'ws';
-import { GameEngine } from './engine.js';
+import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
+import { WebSocketServer, WebSocket } from 'ws';
+import { createGame, applyAction, chooseAIAction } from '../shared/index.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = process.env.PORT || 3000;
-const PUBLIC_DIR = path.join(__dirname, 'public');
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const HASHED_ASSET = /[.-][\w-]{8,}\.(js|css|woff2|png|svg)$/;
+const TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+};
+const fail = (code) => {
+  const error = new Error(code);
+  error.code = code;
+  throw error;
+};
+const digest = (token) => createHash('sha256').update(token).digest();
+function envNumber(key, fallback, minimum, maximum) {
+  if (!process.env[key]) return fallback;
+  const value = Number(process.env[key]);
+  if (!Number.isInteger(value) || value < minimum || value > maximum)
+    throw new Error(`${key} must be an integer from ${minimum} to ${maximum}`);
+  return value;
+}
 
-const rooms = new Map();
-const clients = new Map();
-const reconnectTimers = new Map();
+/** A single-process, in-memory authoritative room server. No listening side effect. */
+export function createServer(options = {}) {
+  const staticDir = path.resolve(options.staticDir ?? path.join(HERE, '../monopoly/dist'));
+  const turnTimeoutMs =
+    options.turnTimeoutMs ?? envNumber('TURN_TIMEOUT_MS', 60_000, 1000, 600_000);
+  const botDelayMs = options.botDelayMs ?? 200;
+  const emptyTtlMs = options.emptyTtlMs ?? 30 * 60_000;
+  const idleTtlMs = options.idleTtlMs ?? 24 * 60 * 60_000;
+  const maxRooms = options.maxRooms ?? 500;
+  const maxConnections = options.maxConnections ?? 500;
+  const allowedOrigins =
+    options.allowedOrigins ??
+    (process.env.ALLOWED_ORIGINS ?? '')
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean);
+  const rooms = new Map();
+  const connections = new Map();
+  let closing = false;
 
-const server = http.createServer((req, res) => {
-  const url = req.url === '/' ? '/index.html' : req.url;
-  const filePath = path.join(PUBLIC_DIR, url);
-  if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-    const ext = path.extname(filePath).toLowerCase();
-    const types = {
-      '.html': 'text/html; charset=utf-8',
-      '.js': 'application/javascript; charset=utf-8',
-      '.css': 'text/css; charset=utf-8',
-      '.json': 'application/json; charset=utf-8',
-      '.svg': 'image/svg+xml',
-      '.png': 'image/png',
-      '.jpg': 'image/jpeg'
+  const server = http.createServer(async (req, res) => {
+    const baseHeaders = {
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'same-origin',
+      'Content-Security-Policy':
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
     };
-    // HTML 入口禁止缓存（确保用户每次拿到最新前端，避免旧 WS 配置导致联机失败）；
-    // 静态资源允许浏览器缓存（文件名含 hash，内容变更会自动失效）
-    const headers = { 'Content-Type': types[ext] || 'application/octet-stream' };
-    if (ext === '.html') {
-      headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
-    }
-    res.writeHead(200, headers);
-    fs.createReadStream(filePath).pipe(res);
-  } else {
-    res.writeHead(404);
-    res.end('Not Found');
-  }
-});
-
-const wss = new WebSocketServer({ server, path: '/ws' });
-
-wss.on('connection', (ws) => {
-  ws.on('message', (raw) => {
-    try {
-      const msg = JSON.parse(raw.toString());
-      handleMessage(ws, msg);
-    } catch (e) {
-      sendError(ws, 'PARSE_ERROR', '消息格式错误');
-    }
-  });
-  ws.on('close', () => handleDisconnect(ws));
-  ws.on('error', () => handleDisconnect(ws));
-});
-
-function send(ws, type, payload = {}, reqId = null) {
-  if (ws.readyState !== ws.OPEN) return;
-  ws.send(JSON.stringify({ type, payload, reqId }));
-}
-
-function sendError(ws, code, message, reqId = null) {
-  send(ws, 'room:error', { code, message }, reqId);
-}
-
-function broadcastRoom(roomKey, type, payload = {}) {
-  const room = rooms.get(roomKey);
-  if (!room) return;
-  for (const p of room.players) {
-    if (p.ws && p.connected) {
-      send(p.ws, type, payload);
-    }
-  }
-}
-
-function getPublicRoomState(room) {
-  return {
-    roomKey: room.roomKey,
-    hostId: room.hostId,
-    status: room.status,
-    players: room.players.map(p => ({
-      playerId: p.playerId,
-      playerName: p.playerName,
-      seatIndex: p.seatIndex,
-      isHost: p.isHost,
-      connected: p.connected,
-      ready: p.ready || false
-    }))
-  };
-}
-
-function validateRoomKey(key) {
-  return /^[A-Za-z0-9]{4,10}$/.test(key);
-}
-
-function generatePlayerId() {
-  return crypto.randomUUID();
-}
-
-function handleMessage(ws, msg) {
-  const { type, payload = {}, reqId } = msg;
-
-  switch (type) {
-    case 'ping':
-      send(ws, 'pong', { t: Date.now() });
-      break;
-    case 'room:create':
-      handleCreate(ws, payload, reqId);
-      break;
-    case 'room:join':
-      handleJoin(ws, payload, reqId);
-      break;
-    case 'room:leave':
-      handleLeave(ws, reqId);
-      break;
-    case 'room:disband':
-      handleDisband(ws, reqId);
-      break;
-    case 'room:start':
-      handleStart(ws, reqId);
-      break;
-    case 'room:restart':
-      handleRestart(ws, reqId);
-      break;
-    case 'game:action':
-      handleGameAction(ws, payload, reqId);
-      break;
-    case 'trade:respond':
-      handleTradeRespond(ws, payload, reqId);
-      break;
-    default:
-      sendError(ws, 'UNKNOWN_TYPE', '未知消息类型');
-  }
-}
-
-function handleCreate(ws, payload, reqId) {
-  const { roomKey, playerName } = payload;
-  if (!roomKey || !playerName) {
-    return sendError(ws, 'INVALID_PARAMS', '房间号和昵称不能为空', reqId);
-  }
-  if (!validateRoomKey(roomKey)) {
-    return sendError(ws, 'INVALID_KEY', '房间号需4~10位字母数字', reqId);
-  }
-  if (rooms.has(roomKey)) {
-    return sendError(ws, 'ROOM_EXISTS', '该房间已存在', reqId);
-  }
-  if (playerName.length < 1 || playerName.length > 8) {
-    return sendError(ws, 'INVALID_NAME', '昵称1~8字符', reqId);
-  }
-
-  const playerId = generatePlayerId();
-  const room = {
-    roomKey,
-    hostId: playerId,
-    players: [
-      {
-        playerId,
-        playerName,
-        ws,
-        isHost: true,
-        connected: true,
-        seatIndex: 0,
-        ready: true,
-        joinedAt: Date.now()
-      }
-    ],
-    status: 'waiting',
-    gameState: null,
-    engine: null,
-    createdAt: Date.now(),
-    maxPlayers: 4
-  };
-  rooms.set(roomKey, room);
-  clients.set(ws, { playerId, roomKey });
-
-  send(ws, 'room:created', {
-    roomKey,
-    playerId,
-    seatIndex: 0,
-    playerName
-  }, reqId);
-  send(ws, 'room:state', getPublicRoomState(room));
-  console.log(`房间创建: ${roomKey}，房主: ${playerName}`);
-}
-
-function handleJoin(ws, payload, reqId) {
-  const { roomKey, playerName, playerId: oldPlayerId } = payload;
-  if (!roomKey || !playerName) {
-    return sendError(ws, 'INVALID_PARAMS', '房间号和昵称不能为空', reqId);
-  }
-  const room = rooms.get(roomKey);
-  if (!room) {
-    return sendError(ws, 'ROOM_NOT_FOUND', '房间不存在', reqId);
-  }
-  if (room.status !== 'waiting') {
-    return sendError(ws, 'ROOM_PLAYING', '游戏已开始，无法加入', reqId);
-  }
-
-  let seatIndex = -1;
-  for (let i = 0; i < room.maxPlayers; i++) {
-    const p = room.players.find(p => p.seatIndex === i);
-    if (!p || !p.connected) {
-      seatIndex = i;
-      break;
-    }
-  }
-  if (seatIndex === -1) {
-    return sendError(ws, 'ROOM_FULL', '房间已满', reqId);
-  }
-
-  let playerId = oldPlayerId;
-  let existingPlayer = null;
-  if (playerId) {
-    existingPlayer = room.players.find(p => p.playerId === playerId);
-  }
-
-  if (existingPlayer && !existingPlayer.connected) {
-    existingPlayer.ws = ws;
-    existingPlayer.connected = true;
-    existingPlayer.playerName = playerName || existingPlayer.playerName;
-    seatIndex = existingPlayer.seatIndex;
-    if (reconnectTimers.has(`${roomKey}:${playerId}`)) {
-      clearTimeout(reconnectTimers.get(`${roomKey}:${playerId}`));
-      reconnectTimers.delete(`${roomKey}:${playerId}`);
-    }
-  } else {
-    playerId = generatePlayerId();
-    const newPlayer = {
-      playerId,
-      playerName,
-      ws,
-      isHost: false,
-      connected: true,
-      seatIndex,
-      ready: false,
-      joinedAt: Date.now()
-    };
-    room.players.push(newPlayer);
-  }
-
-  clients.set(ws, { playerId, roomKey });
-
-  send(ws, 'room:joined', {
-    roomKey,
-    playerId,
-    seatIndex,
-    players: getPublicRoomState(room).players
-  }, reqId);
-  broadcastRoom(roomKey, 'room:state', getPublicRoomState(room));
-  console.log(`玩家加入: ${roomKey}，${playerName}`);
-}
-
-function handleLeave(ws, reqId) {
-  const info = clients.get(ws);
-  if (!info) return;
-  const room = rooms.get(info.roomKey);
-  if (!room) return;
-  // 主动离开：清理 ws 映射后走统一退出逻辑
-  handlePlayerExit(room, info.playerId, 'leave');
-}
-
-/**
- * 统一玩家退出/解散处理（waiting/playing/ended 三阶段同一套逻辑）。
- * - 房主退出 = 解散房间（全员回首页 + 提示）
- * - 普通玩家退出：
- *   - playing 阶段：引擎移除玩家（地产归银行+补位），广播 player:left + game:state
- *   - waiting/ended 阶段：从 room.players 移除，广播 room:state
- *   - 剩余<=1人（仅房主）：房主回等待界面
- *   - 剩余0人：房间销毁
- */
-function handlePlayerExit(room, playerId, reason) {
-  const player = room.players.find(p => p.playerId === playerId);
-  if (!player) return;
-  const roomKey = room.roomKey;
-  const playerName = player.playerName;
-
-  // 清理该玩家的 ws 映射与重连定时器
-  if (player.ws) clients.delete(player.ws);
-  const timerKey = `${roomKey}:${playerId}`;
-  if (reconnectTimers.has(timerKey)) {
-    clearTimeout(reconnectTimers.get(timerKey));
-    reconnectTimers.delete(timerKey);
-  }
-
-  // 房主退出/解散 = 解散整个房间（三阶段一致）
-  if (player.isHost) {
-    disbandRoom(room, reason === 'leave' ? 'host_disband' : reason);
-    return;
-  }
-
-  // 普通玩家退出：从 room.players 移除
-  room.players = room.players.filter(p => p.playerId !== playerId);
-
-  // playing 阶段：引擎同步移除该玩家
-  if (room.status === 'playing' && room.engine) {
-    // 用 _engineIndex 找到退出者在引擎数组中的下标（removePlayer 前的当前值）
-    const enginePlayerIndex = player._engineIndex ?? -1;
-    if (enginePlayerIndex >= 0 && enginePlayerIndex < room.engine.state.players.length) {
-      const engineResult = room.engine.removePlayer(enginePlayerIndex);
-      room.gameState = engineResult.state || room.engine.getState();
-    } else {
-      room.gameState = room.engine.getState();
-    }
-    // removePlayer 用 splice 删除后，剩余玩家的引擎数组下标前移
-    // 引擎 id 已重编号（始终等于数组下标），直接通过 _engineIndex 偏移同步：
-    // 下标在删除位置之前的不变，在删除位置之后的减 1
-    room.players.forEach(rp => {
-      if (rp._engineIndex !== undefined && rp._engineIndex > enginePlayerIndex) {
-        rp._engineIndex -= 1;
-      }
-    });
-    // 通知剩余玩家：退出 + 座位映射更新（先更新 myPlayerId，再广播游戏状态，避免时序错位）
-    broadcastRoom(roomKey, 'player:left', { playerName, reason });
-    // 广播新的 playerSeats 映射，让客户端先更新 myPlayerId
-    const newPlayerSeats = room.engine.state.players.map((enginePlayer, idx) => {
-      const rp = room.players.find(p => p._engineIndex === idx);
-      return { playerId: rp?.playerId, seatIndex: rp?.seatIndex, playerName: enginePlayer.name };
-    });
-    broadcastRoom(roomKey, 'player_seats_updated', { playerSeats: newPlayerSeats });
-    // 再广播游戏状态（此时前端 myPlayerId 已更新，isMyTurn 判定正确）
-    broadcastRoom(roomKey, 'game:state', room.gameState);
-
-    const connectedCount = room.players.filter(p => p.connected).length;
-    if (connectedCount <= 1) {
-      // 仅剩房主或无人：游戏结束，房主回等待界面
-      const survivor = room.players.find(p => p.connected);
-      if (survivor && survivor.isHost) {
-        room.status = 'waiting';
-        room.engine = null;
-        room.gameState = null;
-        broadcastRoom(roomKey, 'room:returned_to_lobby', getPublicRoomState(room));
-      } else {
-        rooms.delete(roomKey);
-        console.log(`房间销毁: ${roomKey}（退出后无人）`);
-      }
-    }
-    console.log(`玩家退出(游戏中): ${roomKey}，${playerName}`);
-    return;
-  }
-
-  // waiting/ended 阶段：广播 room:state
-  const connectedCount = room.players.filter(p => p.connected).length;
-  if (connectedCount === 0) {
-    rooms.delete(roomKey);
-    console.log(`房间销毁: ${roomKey}（无人）`);
-  } else {
-    broadcastRoom(roomKey, 'player:left', { playerName, reason });
-    broadcastRoom(roomKey, 'room:state', getPublicRoomState(room));
-  }
-  console.log(`玩家离开: ${roomKey}，${playerName}`);
-}
-
-function handleDisband(ws, reqId) {
-  const info = clients.get(ws);
-  if (!info) return;
-  const { playerId, roomKey } = info;
-  const room = rooms.get(roomKey);
-  if (!room) return;
-  if (room.hostId !== playerId) {
-    return sendError(ws, 'NOT_HOST', '仅房主可解散房间', reqId);
-  }
-  disbandRoom(room, 'host_disband');
-}
-
-function disbandRoom(room, reason) {
-  broadcastRoom(room.roomKey, 'room:disbanded', { reason });
-  for (const p of room.players) {
-    if (p.ws) clients.delete(p.ws);
-    const timerKey = `${room.roomKey}:${p.playerId}`;
-    if (reconnectTimers.has(timerKey)) {
-      clearTimeout(reconnectTimers.get(timerKey));
-      reconnectTimers.delete(timerKey);
-    }
-  }
-  rooms.delete(room.roomKey);
-  console.log(`房间销毁: ${room.roomKey}，原因: ${reason}`);
-}
-
-function handleStart(ws, reqId) {
-  const info = clients.get(ws);
-  if (!info) return;
-  const { playerId, roomKey } = info;
-  const room = rooms.get(roomKey);
-  if (!room) return;
-  if (room.hostId !== playerId) {
-    return sendError(ws, 'NOT_HOST', '仅房主可开始游戏', reqId);
-  }
-  if (room.status !== 'waiting') {
-    return sendError(ws, 'ALREADY_PLAYING', '游戏已开始', reqId);
-  }
-  const connectedCount = room.players.filter(p => p.connected).length;
-  if (connectedCount < 2) {
-    return sendError(ws, 'NOT_ENOUGH_PLAYERS', '至少需要2名玩家', reqId);
-  }
-
-  const engine = new GameEngine();
-  // 参与游戏的玩家按座位排序，引擎用数组下标作为 playerIndex
-  const sortedConnected = room.players
-    .filter(p => p.connected)
-    .sort((a, b) => a.seatIndex - b.seatIndex);
-  // 记录每个玩家在引擎中的 playerIndex（removePlayer 后需重算）
-  // 引擎 id 始终等于数组下标（removePlayer 后会重编号）
-  sortedConnected.forEach((p, i) => { p._engineIndex = i; });
-  const playerConfigs = sortedConnected.map(p => ({ name: p.playerName, seatIndex: p.seatIndex }));
-
-  const gameState = engine.initGame(playerConfigs);
-  room.engine = engine;
-  room.gameState = gameState;
-  room.status = 'playing';
-
-  broadcastRoom(roomKey, 'room:started', {
-    gameState,
-    playerSeats: sortedConnected.map(p => ({ playerId: p.playerId, seatIndex: p.seatIndex, playerName: p.playerName }))
-  });
-  broadcastRoom(roomKey, 'game:state', gameState);
-  console.log(`游戏开始: ${roomKey}`);
-}
-
-function handleRestart(ws, reqId) {
-  const info = clients.get(ws);
-  if (!info) return;
-  const { playerId, roomKey } = info;
-  const room = rooms.get(roomKey);
-  if (!room) return;
-  if (room.hostId !== playerId) {
-    return sendError(ws, 'NOT_HOST', '仅房主可重新开始', reqId);
-  }
-  if (room.status !== 'ended') {
-    return sendError(ws, 'NOT_ENDED', '游戏未结束', reqId);
-  }
-
-  const engine = new GameEngine();
-  const sortedConnected = room.players
-    .filter(p => p.connected)
-    .sort((a, b) => a.seatIndex - b.seatIndex);
-  sortedConnected.forEach((p, i) => { p._engineIndex = i; });
-  const playerConfigs = sortedConnected.map(p => ({ name: p.playerName, seatIndex: p.seatIndex }));
-
-  const gameState = engine.initGame(playerConfigs);
-  room.engine = engine;
-  room.gameState = gameState;
-  room.status = 'playing';
-
-  broadcastRoom(roomKey, 'room:started', {
-    gameState,
-    playerSeats: sortedConnected.map(p => ({ playerId: p.playerId, seatIndex: p.seatIndex, playerName: p.playerName }))
-  });
-  broadcastRoom(roomKey, 'game:state', gameState);
-  console.log(`游戏重开: ${roomKey}`);
-}
-
-function handleGameAction(ws, payload, reqId) {
-  const info = clients.get(ws);
-  if (!info) return;
-  const { playerId, roomKey } = info;
-  const room = rooms.get(roomKey);
-  if (!room || room.status !== 'playing' || !room.engine) {
-    return sendError(ws, 'GAME_NOT_ACTIVE', '游戏未进行中', reqId);
-  }
-
-  const player = room.players.find(p => p.playerId === playerId);
-  if (!player || !player.connected) {
-    return sendError(ws, 'PLAYER_NOT_FOUND', '玩家不存在', reqId);
-  }
-
-  // 使用 _engineIndex 直接映射引擎数组下标（removePlayer 后已同步更新）
-  const playerIndex = player._engineIndex ?? -1;
-  if (playerIndex < 0 || playerIndex >= room.engine.state.players.length) {
-    return sendError(ws, 'PLAYER_NOT_FOUND', '玩家不在游戏中', reqId);
-  }
-
-  const { action, params } = payload;
-
-  // 联机交易确认：买方发起买真人玩家资产时，先推 trade:request 给卖方确认
-  if ((action === 'buyPropertyFromPlayer' || action === 'buyBuildingFromPlayer') && params) {
-    // params.sellerId 是引擎数组下标（= 前端 event.ownerId），用 _engineIndex 匹配
-    const sellerEngineIndex = params.sellerId;
-    const sellerEnginePlayer = room.engine.state.players[sellerEngineIndex];
-    // 通过 _engineIndex 找到对应的 room 玩家（id 已重编号，始终等于数组下标）
-    const seller = sellerEnginePlayer
-      ? room.players.find(p => p._engineIndex === sellerEngineIndex)
-      : null;
-    if (seller && seller.connected && sellerEnginePlayer) {
-      // 获取交易详情（地产名、价格）
-      const tradeType = action === 'buyPropertyFromPlayer' ? 'buyProperty' : 'buyBuilding';
-      const info = room.engine.getTradeInfo(params.propertyId, params.sellerId, tradeType);
-      // 暂存待确认交易
-      room.pendingTrade = {
-        buyerIndex: playerIndex,
-        sellerPlayerId: seller.playerId,
-        action,
-        params,
-        tradeData: {
-          type: tradeType,
-          propertyId: params.propertyId,
-          propertyName: info.name,
-          ownerId: params.sellerId,
-          ownerName: seller.playerName,
-          buyerId: playerIndex,
-          buyerName: player.playerName,
-          price: info.price,
-          buildingLevel: info.buildingLevel
-        }
-      };
-      send(ws, 'trade:waiting', { sellerName: seller.playerName });
-      send(seller.ws, 'trade:request', room.pendingTrade.tradeData);
-      return;
-    }
-  }
-
-  const result = room.engine.handleGameAction(playerIndex, action, params || {});
-
-  if (result.error) {
-    return sendError(ws, 'ACTION_FAILED', result.error, reqId);
-  }
-
-  const newState = result.state || room.engine.getState();
-  room.gameState = newState;
-
-  broadcastRoom(roomKey, 'game:state', newState);
-
-  if (newState.phase === 'ended' && newState.winner) {
-    room.status = 'ended';
-    broadcastRoom(roomKey, 'game:ended', {
-      winner: newState.winner.name,
-      winnerId: newState.winner.id,
-      winReason: newState.winReason,
-      ranking: newState.players
-        .map(p => ({ name: p.name, cash: p.cash, bankrupt: p.bankrupt }))
-        .sort((a, b) => b.cash - a.cash)
-    });
-    return;
-  }
-
-  // 自动推进：若当前回合玩家已断线（10s 超时前的间隙），服务端主动跳过
-  skipDisconnectedPlayer(room);
-}
-
-/**
- * 处理卖方对交易请求的响应（同意/拒绝）。
- */
-function handleTradeRespond(ws, payload, reqId) {
-  const info = clients.get(ws);
-  if (!info) return;
-  const room = rooms.get(info.roomKey);
-  if (!room || !room.pendingTrade) {
-    return sendError(ws, 'NO_TRADE', '无待确认交易', reqId);
-  }
-
-  const trade = room.pendingTrade;
-  // 校验响应者是卖方本人
-  if (info.playerId !== trade.sellerPlayerId) {
-    return sendError(ws, 'NOT_SELLER', '仅卖方可确认交易', reqId);
-  }
-
-  const accepted = payload && payload.accepted;
-  room.pendingTrade = null; // 清除待确认交易
-
-  if (accepted) {
-    // 卖方同意：执行交易
-    const result = room.engine.handleGameAction(trade.buyerIndex, trade.action, trade.params);
-    if (result.error) {
-      // 交易失败（如资金不足）
-      broadcastRoom(room.roomKey, 'trade:result', { accepted: false, message: result.error });
-      return;
-    }
-    room.gameState = result.state || room.engine.getState();
-    broadcastRoom(room.roomKey, 'trade:result', { accepted: true, message: '交易成功' });
-    broadcastRoom(room.roomKey, 'game:state', room.gameState);
-    if (room.gameState.phase === 'ended' && room.gameState.winner) {
-      room.status = 'ended';
-      broadcastRoom(room.roomKey, 'game:ended', {
-        winner: room.gameState.winner.name,
-        winnerId: room.gameState.winner.id,
-        winReason: room.gameState.winReason
+    const finish = (status, body) => {
+      res.writeHead(status, {
+        ...baseHeaders,
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-store',
       });
+      res.end(body);
+    };
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.setHeader('Allow', 'GET, HEAD');
+      return finish(405, 'Method not allowed');
     }
-  } else {
-    // 卖方拒绝：取消交易，结束买方回合
-    room.engine.endTurn(trade.buyerIndex);
-    room.gameState = room.engine.getState();
-    broadcastRoom(room.roomKey, 'trade:result', { accepted: false, message: '卖方拒绝交易' });
-    broadcastRoom(room.roomKey, 'game:state', room.gameState);
-  }
-}
+    let pathname;
+    try {
+      pathname = decodeURIComponent((req.url ?? '/').split('?')[0]);
+    } catch {
+      return finish(400, 'Invalid path');
+    }
+    if (pathname === '/healthz') {
+      res.writeHead(200, {
+        ...baseHeaders,
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',
+      });
+      return res.end(req.method === 'HEAD' ? undefined : JSON.stringify({ ok: true, version: 4 }));
+    }
+    if (
+      !pathname.startsWith('/') ||
+      pathname.includes('\\') ||
+      pathname.includes('\0') ||
+      pathname.split('/').includes('..')
+    )
+      return finish(403, 'Forbidden');
+    const file = path.resolve(staticDir, `.${pathname === '/' ? '/index.html' : pathname}`);
+    if (!file.startsWith(staticDir + path.sep)) return finish(403, 'Forbidden');
+    try {
+      const info = await stat(file);
+      if (!info.isFile()) return finish(404, 'Not found');
+      const ext = path.extname(file);
+      res.writeHead(200, {
+        ...baseHeaders,
+        'Content-Type': TYPES[ext] ?? 'application/octet-stream',
+        'Content-Length': info.size,
+        'Cache-Control':
+          ext === '.html'
+            ? 'no-store'
+            : HASHED_ASSET.test(path.basename(file))
+              ? 'public, max-age=31536000, immutable'
+              : 'no-cache',
+      });
+      if (req.method === 'HEAD') return res.end();
+      const stream = createReadStream(file);
+      stream.on('error', () => res.destroy());
+      req.on('aborted', () => stream.destroy());
+      stream.pipe(res);
+    } catch {
+      finish(404, 'Build the frontend with npm run build first.');
+    }
+  });
 
-/**
- * 若当前回合玩家已断线，自动推进到下一个在线玩家。
- * 防止"轮到断线玩家时游戏卡死"（在 10s 超时移除前的间隙）。
- */
-function skipDisconnectedPlayer(room) {
-  if (!room.engine || room.gameState.phase === 'ended' || room.gameState.pendingEvent) return;
-  const currentIdx = room.engine.state.currentPlayerIndex;
-  const currentPlayer = room.engine.state.players[currentIdx];
-  if (!currentPlayer) return;
-  // 通过 _engineIndex 匹配 room 玩家（id 已重编号，始终等于数组下标）
-  const roomPlayer = room.players.find(p => p._engineIndex === currentIdx);
-  if (roomPlayer && !roomPlayer.connected) {
-    room.engine.nextTurn((p) => {
-      const pIdx = room.engine.state.players.indexOf(p);
-      const rp = room.players.find(pp => pp._engineIndex === pIdx);
-      return !rp || !rp.connected;
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 16_384 });
+  server.on('upgrade', (req, socket, head) => {
+    const origin = req.headers.origin;
+    let permitted = !origin;
+    if (origin) {
+      try {
+        permitted = allowedOrigins.length
+          ? allowedOrigins.includes(origin)
+          : new URL(origin).host === req.headers.host;
+      } catch {
+        permitted = false;
+      }
+    }
+    if (closing || req.url !== '/ws' || !permitted || connections.size >= maxConnections) {
+      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+      return socket.destroy();
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws));
+  });
+
+  function send(ws, value) {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    if (ws.bufferedAmount > 1_048_576) return ws.close(1009, 'Slow client');
+    ws.send(JSON.stringify(value));
+  }
+  function snapshot(room) {
+    let game = null;
+    if (room.game) {
+      const { seed, rngState, ...publicState } = room.game;
+      game = publicState;
+    }
+    return {
+      room: {
+        code: room.code,
+        hostId: room.hostId,
+        status: room.game?.status ?? 'waiting',
+        players: room.players.map((p) => ({
+          id: p.id,
+          name: p.name,
+          connected: Boolean(p.ws?.readyState === WebSocket.OPEN),
+          ready: p.ready,
+          isAI: p.isAI,
+          difficulty: p.difficulty,
+        })),
+        turnDeadline: room.turnDeadline,
+      },
+      game,
+    };
+  }
+  function broadcast(room) {
+    const payload = snapshot(room);
+    for (const p of room.players) if (p.ws) send(p.ws, { type: 'snapshot', payload });
+  }
+  function migrateHost(room) {
+    const host = room.players.find((p) => p.id === room.hostId);
+    if (!host?.isAI && host?.ws?.readyState === WebSocket.OPEN) return;
+    room.hostId =
+      room.players.find((p) => !p.isAI && p.ws?.readyState === WebSocket.OPEN)?.id ??
+      room.players.find((p) => !p.isAI)?.id ??
+      null;
+    const newHost = room.players.find((p) => p.id === room.hostId);
+    if (newHost) newHost.ready = true;
+  }
+  function clearRoomTimer(room) {
+    clearTimeout(room.timer);
+    room.timer = null;
+  }
+  function activeMember(ws) {
+    const context = connections.get(ws);
+    const room = rooms.get(context?.code);
+    const player = room?.players.find((p) => p.id === context?.playerId && p.ws === ws);
+    if (!room || !player) fail('NOT_IN_ROOM');
+    return { room, player };
+  }
+  function requireHost(room, player) {
+    if (room.hostId !== player.id) fail('NOT_HOST');
+  }
+  function touch(room) {
+    room.updatedAt = Date.now();
+  }
+  function advance(room, playerId, action) {
+    // Online dice get fresh, private entropy for every roll. A guessed PRNG state
+    // cannot predict the next turn; the shared offline engine remains replayable.
+    // An invalid command never commits even this private randomness.
+    const input =
+      action.type === 'roll' ? { ...room.game, rngState: randomInt(1, 0x100000000) } : room.game;
+    room.game = applyAction(input, playerId, action);
+  }
+  function schedule(room) {
+    clearRoomTimer(room);
+    if (!room.game || room.game.status !== 'playing') {
+      room.turnDeadline = null;
+      return;
+    }
+    const id = room.game.currentPlayerId;
+    const player = room.players.find((p) => p.id === id);
+    if (!player) return;
+    if (room.turnPlayerId !== id || room.turnRound !== room.game.round) {
+      room.turnPlayerId = id;
+      room.turnRound = room.game.round;
+      room.turnDeadline = Date.now() + turnTimeoutMs;
+      room.autoTurnId = null;
+    }
+    const automatic = player.isAI || room.autoTurnId === id;
+    const delay = automatic ? botDelayMs : Math.max(0, room.turnDeadline - Date.now());
+    room.timer = setTimeout(() => {
+      if (closing || !rooms.has(room.code) || room.game?.status !== 'playing') return;
+      room.autoTurnId = room.game.currentPlayerId;
+      try {
+        const next = chooseAIAction(
+          room.game,
+          room.game.currentPlayerId,
+          player.difficulty ?? 'normal',
+        );
+        advance(room, room.game.currentPlayerId, next);
+        touch(room);
+        schedule(room);
+        broadcast(room);
+      } catch (error) {
+        clearRoomTimer(room);
+        for (const member of room.players)
+          if (member.ws) send(member.ws, { type: 'error', payload: { code: 'ENGINE_ERROR' } });
+        if (options.onError) options.onError(error);
+        else console.error('Automatic turn failed:', error.code ?? error.message);
+      }
+    }, delay);
+    room.timer.unref?.();
+  }
+  function sessionReply(room, player, token) {
+    return { session: { code: room.code, playerId: player.id, token }, snapshot: snapshot(room) };
+  }
+  function bind(ws, room, player) {
+    const previous = player.ws;
+    if (previous && previous !== ws) {
+      const old = connections.get(previous);
+      if (old) {
+        old.code = null;
+        old.playerId = null;
+      }
+      player.ws = null;
+      previous.close(4001, 'Session resumed elsewhere');
+    }
+    const context = connections.get(ws);
+    context.code = room.code;
+    context.playerId = player.id;
+    player.ws = ws;
+    room.emptySince = null;
+    touch(room);
+  }
+  function ensureDetached(ws) {
+    if (connections.get(ws)?.code) fail('ALREADY_IN_ROOM');
+  }
+  function name(value) {
+    if (
+      typeof value !== 'string' ||
+      !value.trim() ||
+      [...value.trim()].length > 20 ||
+      /[\u0000-\u001f\u007f]/.test(value)
+    )
+      fail('INVALID_NAME');
+    return value.trim();
+  }
+  function code(value) {
+    if (typeof value !== 'string' || !/^[A-Z2-9]{6}$/.test(value.toUpperCase()))
+      fail('INVALID_CODE');
+    return value.toUpperCase();
+  }
+  function makePlayer(playerName, isAI = false, difficulty = 'normal') {
+    const token = randomBytes(32).toString('base64url');
+    return {
+      token,
+      player: {
+        id: randomUUID(),
+        name: playerName,
+        tokenHash: isAI ? null : digest(token),
+        isAI,
+        difficulty,
+        ready: true,
+        ws: null,
+      },
+    };
+  }
+  function handle(ws, type, payload) {
+    if (type === 'ping') return { time: Date.now() };
+    if (type === 'create') {
+      ensureDetached(ws);
+      if (rooms.size >= maxRooms) fail('SERVER_FULL');
+      const playerName = name(payload.name);
+      let roomCode;
+      const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      do {
+        roomCode = Array.from({ length: 6 }, () => alphabet[randomInt(alphabet.length)]).join('');
+      } while (rooms.has(roomCode));
+      const { player, token } = makePlayer(playerName);
+      const room = {
+        code: roomCode,
+        hostId: player.id,
+        players: [player],
+        game: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        emptySince: null,
+        timer: null,
+        turnDeadline: null,
+        turnPlayerId: null,
+        turnRound: null,
+        autoTurnId: null,
+      };
+      rooms.set(roomCode, room);
+      bind(ws, room, player);
+      broadcast(room);
+      return sessionReply(room, player, token);
+    }
+    if (type === 'join') {
+      ensureDetached(ws);
+      const room = rooms.get(code(payload.code));
+      if (!room) fail('ROOM_NOT_FOUND');
+      if (room.game?.status === 'playing') fail('GAME_ACTIVE');
+      if (room.players.length >= 4) fail('ROOM_FULL');
+      const { player, token } = makePlayer(name(payload.name));
+      player.ready = false;
+      room.players.push(player);
+      bind(ws, room, player);
+      migrateHost(room);
+      broadcast(room);
+      return sessionReply(room, player, token);
+    }
+    if (type === 'resume') {
+      ensureDetached(ws);
+      const room = rooms.get(code(payload.code));
+      if (!room) fail('ROOM_NOT_FOUND');
+      const player = room.players.find((p) => p.id === payload.playerId && !p.isAI);
+      if (
+        !player?.tokenHash ||
+        typeof payload.token !== 'string' ||
+        payload.token.length > 128 ||
+        !timingSafeEqual(player.tokenHash, digest(payload.token))
+      )
+        fail('INVALID_SESSION');
+      bind(ws, room, player);
+      migrateHost(room);
+      broadcast(room);
+      return sessionReply(room, player, payload.token);
+    }
+    const { room, player } = activeMember(ws);
+    if (type === 'leave') {
+      connections.get(ws).code = null;
+      connections.get(ws).playerId = null;
+      player.ws = null;
+      player.tokenHash = null;
+      if (room.game?.status === 'playing') {
+        player.isAI = true;
+        room.game = {
+          ...room.game,
+          revision: room.game.revision + 1,
+          players: room.game.players.map((p) => (p.id === player.id ? { ...p, isAI: true } : p)),
+        };
+      } else room.players = room.players.filter((p) => p !== player);
+      migrateHost(room);
+      if (!room.players.some((p) => !p.isAI && p.ws?.readyState === WebSocket.OPEN))
+        room.emptySince ??= Date.now();
+      touch(room);
+      schedule(room);
+      broadcast(room);
+      return {};
+    }
+    if (type === 'ready') {
+      if (room.game?.status === 'playing') fail('GAME_ACTIVE');
+      if (typeof payload.ready !== 'boolean') fail('BAD_MESSAGE');
+      player.ready = room.hostId === player.id ? true : payload.ready;
+    } else if (type === 'addBot') {
+      requireHost(room, player);
+      if (room.game?.status === 'playing') fail('GAME_ACTIVE');
+      if (room.players.length >= 4) fail('ROOM_FULL');
+      if (!['easy', 'normal', 'hard'].includes(payload.difficulty)) fail('BAD_MESSAGE');
+      const bot = makePlayer(
+        `AI ${room.players.filter((p) => p.isAI).length + 1}`,
+        true,
+        payload.difficulty,
+      ).player;
+      room.players.push(bot);
+    } else if (type === 'removeBot') {
+      requireHost(room, player);
+      if (room.game?.status === 'playing') fail('GAME_ACTIVE');
+      const bot = room.players.find((p) => p.id === payload.playerId && p.isAI);
+      if (!bot) fail('PLAYER_UNKNOWN');
+      room.players = room.players.filter((p) => p !== bot);
+    } else if (type === 'removePlayer') {
+      requireHost(room, player);
+      if (room.game?.status === 'playing') fail('GAME_ACTIVE');
+      const target = room.players.find(
+        (p) => p.id === payload.playerId && !p.isAI && !p.ws && p.id !== player.id,
+      );
+      if (!target) fail('PLAYER_UNKNOWN');
+      target.tokenHash = null;
+      room.players = room.players.filter((p) => p !== target);
+    } else if (type === 'start') {
+      requireHost(room, player);
+      if (room.game?.status === 'playing') fail('GAME_ACTIVE');
+      if (room.players.length < 2) fail('NOT_ENOUGH_PLAYERS');
+      if (room.players.some((p) => !p.isAI && (!p.ready || p.ws?.readyState !== WebSocket.OPEN)))
+        fail('NOT_READY');
+      const maxRounds = payload.maxRounds ?? 40;
+      if (!Number.isInteger(maxRounds) || maxRounds < 10 || maxRounds > 100) fail('BAD_MESSAGE');
+      room.game = createGame({
+        players: room.players.map((p) => ({
+          id: p.id,
+          name: p.name,
+          isAI: p.isAI,
+          difficulty: p.difficulty,
+        })),
+        seed: randomBytes(16).toString('hex'),
+        maxRounds,
+      });
+      room.turnPlayerId = null;
+      room.turnRound = null;
+    } else if (type === 'action') {
+      if (!room.game || room.game.status !== 'playing') fail('GAME_NOT_ACTIVE');
+      if (!Number.isInteger(payload.revision) || payload.revision !== room.game.revision)
+        fail('STALE_REVISION');
+      if (!payload.action || typeof payload.action !== 'object' || Array.isArray(payload.action))
+        fail('INVALID_ACTION');
+      if (room.autoTurnId === player.id) fail('TURN_AUTOPLAY');
+      advance(room, player.id, payload.action);
+    } else fail('UNKNOWN_TYPE');
+    touch(room);
+    schedule(room);
+    broadcast(room);
+    return {};
+  }
+
+  wss.on('connection', (ws) => {
+    const context = {
+      code: null,
+      playerId: null,
+      cache: new Map(),
+      tokens: 60,
+      refill: Date.now(),
+      alive: true,
+    };
+    connections.set(ws, context);
+    ws.on('pong', () => {
+      context.alive = true;
     });
-    room.gameState = room.engine.getState();
-    broadcastRoom(room.roomKey, 'game:state', room.gameState);
-    console.log(`自动跳过断线玩家: ${currentPlayer.name}`);
-  }
-}
-
-function handleDisconnect(ws) {
-  const info = clients.get(ws);
-  if (!info) return;
-  const { playerId, roomKey } = info;
-  const room = rooms.get(roomKey);
-  if (!room) return;
-
-  const player = room.players.find(p => p.playerId === playerId);
-  if (!player) return;
-
-  player.connected = false;
-  player.ws = null;
-  clients.delete(ws);
-
-  const timerKey = `${roomKey}:${playerId}`;
-  const timeout = setTimeout(() => {
-    const r = rooms.get(roomKey);
-    if (!r) return;
-    const p = r.players.find(pp => pp.playerId === playerId);
-    // 10s 未重连：统一走 handlePlayerExit（移除玩家/解散房间）
-    if (p && !p.connected) {
-      reconnectTimers.delete(timerKey);
-      handlePlayerExit(r, playerId, 'disconnect_timeout');
+    ws.on('message', (raw, binary) => {
+      let msg;
+      try {
+        if (binary) fail('BAD_MESSAGE');
+        msg = JSON.parse(raw.toString());
+      } catch {
+        return send(ws, { type: 'error', payload: { code: 'BAD_MESSAGE' } });
+      }
+      const id = msg?.id;
+      if (typeof id !== 'string' || !id || id.length > 64)
+        return send(ws, { type: 'error', payload: { code: 'BAD_MESSAGE' } });
+      const fingerprint = raw.toString();
+      const cached = context.cache.get(id);
+      if (cached)
+        return send(
+          ws,
+          cached.fingerprint === fingerprint
+            ? cached.reply
+            : { id, type: 'error', payload: { code: 'REQUEST_ID_REUSED' } },
+        );
+      const now = Date.now();
+      context.tokens = Math.min(60, context.tokens + (now - context.refill) / 100);
+      context.refill = now;
+      let reply;
+      try {
+        if (context.tokens < 1) fail('RATE_LIMIT');
+        context.tokens -= 1;
+        if (
+          typeof msg.type !== 'string' ||
+          msg.payload === null ||
+          (msg.payload !== undefined &&
+            (typeof msg.payload !== 'object' || Array.isArray(msg.payload)))
+        )
+          fail('BAD_MESSAGE');
+        reply = { id, type: 'ok', payload: handle(ws, msg.type, msg.payload ?? {}) };
+      } catch (error) {
+        reply = { id, type: 'error', payload: { code: error.code ?? 'INVALID_ACTION' } };
+      }
+      context.cache.set(id, { fingerprint, reply });
+      if (context.cache.size > 128) context.cache.delete(context.cache.keys().next().value);
+      send(ws, reply);
+    });
+    ws.on('close', () => {
+      const room = rooms.get(context.code);
+      const player = room?.players.find((p) => p.id === context.playerId && p.ws === ws);
+      connections.delete(ws);
+      if (!player) return;
+      player.ws = null;
+      migrateHost(room);
+      if (!room.players.some((p) => !p.isAI && p.ws?.readyState === WebSocket.OPEN))
+        room.emptySince ??= Date.now();
+      broadcast(room);
+    });
+    ws.on('error', () => {});
+  });
+  const heartbeat = setInterval(() => {
+    for (const [ws, context] of connections) {
+      if (!context.alive) {
+        ws.terminate();
+        continue;
+      }
+      context.alive = false;
+      ws.ping();
     }
-  }, 10000);
-  reconnectTimers.set(timerKey, timeout);
+    const now = Date.now();
+    for (const [id, room] of rooms) {
+      if (
+        (room.emptySince && now - room.emptySince > emptyTtlMs) ||
+        now - room.updatedAt > idleTtlMs
+      ) {
+        clearRoomTimer(room);
+        for (const player of room.players)
+          if (player.ws) {
+            const context = connections.get(player.ws);
+            if (context) {
+              context.code = null;
+              context.playerId = null;
+            }
+            send(player.ws, { type: 'error', payload: { code: 'ROOM_EXPIRED' } });
+          }
+        rooms.delete(id);
+      }
+    }
+  }, options.heartbeatMs ?? 30_000);
+  heartbeat.unref?.();
 
-  const connectedCount = room.players.filter(p => p.connected).length;
-  if (connectedCount > 0) {
-    broadcastRoom(roomKey, 'room:state', getPublicRoomState(room));
-  }
-  console.log(`连接断开: ${roomKey}，${player.playerName}`);
+  return {
+    server,
+    wss,
+    rooms,
+    listen(port = Number(process.env.PORT ?? 3000), host = process.env.HOST ?? '0.0.0.0') {
+      return new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(port, host, () => {
+          server.off('error', reject);
+          resolve(server.address());
+        });
+      });
+    },
+    async close() {
+      if (closing) return;
+      closing = true;
+      clearInterval(heartbeat);
+      for (const room of rooms.values()) clearRoomTimer(room);
+      for (const ws of connections.keys()) ws.terminate();
+      await new Promise((resolve) => wss.close(resolve));
+      if (server.listening) await new Promise((resolve) => server.close(resolve));
+      rooms.clear();
+      connections.clear();
+    },
+  };
 }
 
-server.listen(PORT, () => {
-  console.log(`🚀 仙境海岸·大富翁 联机服务器启动`);
-  console.log(`📍 HTTP: http://localhost:${PORT}`);
-  console.log(`🔌 WebSocket: ws://localhost:${PORT}/ws`);
-  console.log(`📁 静态文件目录: ${PUBLIC_DIR}`);
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const app = createServer();
+  app
+    .listen()
+    .then((address) => console.log(`Monopoly v4 listening on port ${address.port}`))
+    .catch((error) => {
+      console.error(error.message);
+      process.exitCode = 1;
+    });
+  for (const signal of ['SIGINT', 'SIGTERM'])
+    process.once(signal, () => app.close().then(() => process.exit()));
+}

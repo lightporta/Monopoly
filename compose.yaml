@@ -1,0 +1,13 @@
+services:
+  monopoly:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      HOST: "0.0.0.0"
+      TURN_TIMEOUT_MS: "60000"
+      # Set this to your exact HTTPS site origin when using a reverse proxy.
+      ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-}"
+    restart: unless-stopped
+    init: true
