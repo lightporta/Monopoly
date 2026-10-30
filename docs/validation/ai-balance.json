@@ -1,0 +1,217 @@
+{
+  "engineVersion": 4,
+  "seedPrefix": "balance-v4",
+  "seedsPerScenario": 100,
+  "maxRounds": 40,
+  "totalGames": 1200,
+  "completedGames": 1200,
+  "totalActions": 290603,
+  "interpretation": "Seeded AI self-play with each difficulty rotated through every seat. Ties split win credit. These results measure this policy suite, not human win rates or production networking.",
+  "scenarios": [
+    {
+      "scenario": "easy-v-normal",
+      "levels": [
+        "easy",
+        "normal"
+      ],
+      "games": 200,
+      "completed": 200,
+      "ties": 0,
+      "winsByDifficulty": {
+        "easy": {
+          "wins": 42,
+          "share": 0.21
+        },
+        "normal": {
+          "wins": 158,
+          "share": 0.79
+        }
+      },
+      "winsBySeat": [
+        {
+          "wins": 104,
+          "share": 0.52
+        },
+        {
+          "wins": 96,
+          "share": 0.48
+        }
+      ],
+      "finishReasons": {
+        "roundLimit": 200
+      },
+      "averageRounds": 40,
+      "averageActions": 193.09,
+      "averageNetWorth": {
+        "easy": 23634,
+        "normal": 26655
+      }
+    },
+    {
+      "scenario": "normal-v-hard",
+      "levels": [
+        "normal",
+        "hard"
+      ],
+      "games": 200,
+      "completed": 200,
+      "ties": 0,
+      "winsByDifficulty": {
+        "normal": {
+          "wins": 95,
+          "share": 0.475
+        },
+        "hard": {
+          "wins": 105,
+          "share": 0.525
+        }
+      },
+      "winsBySeat": [
+        {
+          "wins": 99,
+          "share": 0.495
+        },
+        {
+          "wins": 101,
+          "share": 0.505
+        }
+      ],
+      "finishReasons": {
+        "roundLimit": 200
+      },
+      "averageRounds": 40,
+      "averageActions": 195.55,
+      "averageNetWorth": {
+        "normal": 26085,
+        "hard": 26608
+      }
+    },
+    {
+      "scenario": "easy-v-hard",
+      "levels": [
+        "easy",
+        "hard"
+      ],
+      "games": 200,
+      "completed": 200,
+      "ties": 1,
+      "winsByDifficulty": {
+        "easy": {
+          "wins": 38.5,
+          "share": 0.1925
+        },
+        "hard": {
+          "wins": 161.5,
+          "share": 0.8075
+        }
+      },
+      "winsBySeat": [
+        {
+          "wins": 103.5,
+          "share": 0.5175
+        },
+        {
+          "wins": 96.5,
+          "share": 0.4825
+        }
+      ],
+      "finishReasons": {
+        "roundLimit": 200
+      },
+      "averageRounds": 40,
+      "averageActions": 192.74,
+      "averageNetWorth": {
+        "easy": 23519,
+        "hard": 26675
+      }
+    },
+    {
+      "scenario": "mixed-three",
+      "levels": [
+        "easy",
+        "normal",
+        "hard"
+      ],
+      "games": 300,
+      "completed": 300,
+      "ties": 0,
+      "winsByDifficulty": {
+        "easy": {
+          "wins": 43,
+          "share": 0.1433
+        },
+        "normal": {
+          "wins": 116,
+          "share": 0.3867
+        },
+        "hard": {
+          "wins": 141,
+          "share": 0.47
+        }
+      },
+      "winsBySeat": [
+        {
+          "wins": 105,
+          "share": 0.35
+        },
+        {
+          "wins": 97,
+          "share": 0.3233
+        },
+        {
+          "wins": 98,
+          "share": 0.3267
+        }
+      ],
+      "finishReasons": {
+        "roundLimit": 300
+      },
+      "averageRounds": 40,
+      "averageActions": 289.21,
+      "averageNetWorth": {
+        "easy": 21706,
+        "normal": 24833,
+        "hard": 26023
+      }
+    },
+    {
+      "scenario": "equal-normal",
+      "levels": [
+        "normal",
+        "normal",
+        "normal"
+      ],
+      "games": 300,
+      "completed": 300,
+      "ties": 0,
+      "winsByDifficulty": {
+        "normal": {
+          "wins": 300,
+          "share": 1
+        }
+      },
+      "winsBySeat": [
+        {
+          "wins": 93,
+          "share": 0.31
+        },
+        {
+          "wins": 108,
+          "share": 0.36
+        },
+        {
+          "wins": 99,
+          "share": 0.33
+        }
+      ],
+      "finishReasons": {
+        "roundLimit": 300
+      },
+      "averageRounds": 40,
+      "averageActions": 291.88,
+      "averageNetWorth": {
+        "normal": 24566
+      }
+    }
+  ]
+}

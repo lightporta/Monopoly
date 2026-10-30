@@ -1,361 +1,77 @@
-# 🚀 游戏部署与运维指南（面向部署者）
+# v4 运维指南
 
-> **最后更新**：2026-07-14 V3.3
-> **适用环境**：腾讯云轻量 Ubuntu 22.04（2核2G 及以上）
-> **说明**：本指南面向将自己 clone 的项目部署到自有云服务器的部署者。文中 `你的服务器IP` 请替换为你自己服务器的公网 IP。
+[English](operations-guide.en.md) · [部署指南](deployment-guide.md)
 
----
+Node 单进程同时提供 `monopoly/dist/` 静态页面和 `/ws`。房间只在内存中；重启、进程崩溃或升级后不能恢复正在进行的联机对局。浏览器中的单机保存与服务端房间是两回事。
 
-## 目录
+## 日常检查
 
-- [一、快速操作速查表](#一快速操作速查表)
-- [二、更新游戏代码（最常用）](#二更新游戏代码最常用)
-- [三、查看玩家状态与房间状态](#三查看玩家状态与房间状态)
-- [四、实时监听游戏日志](#四实时监听游戏日志)
-- [五、PM2 进程管理](#五pm2-进程管理)
-- [六、首次部署（从零开始）](#六首次部署从零开始)
-- [七、故障排查](#七故障排查)
-- [八、保证游戏 7×24 运行](#八保证游戏-724-运行)
+```bash
+curl --fail http://127.0.0.1:3000/healthz
+sudo systemctl status monopoly
+sudo journalctl -u monopoly -n 100 --no-pager
+```
 
----
+`/healthz` 返回 `{"ok":true,"version":4}` 表示 HTTP 进程可响应。它不检查外部 DNS、TLS、反代 WebSocket、玩家可玩性或房间数量。还应定期在两个独立浏览器中完成创建、加入、准备、开局和轮流行动。
 
-## 一、快速操作速查表
+若用 Docker Compose，执行 `docker compose ps` 和 `docker compose logs --tail=100`；进程守护方式以实际部署为准。不要同时启动 systemd 和另一份容器服务占用同一端口。
 
-| 我想… | 命令 |
-|---|---|
-| 查看游戏是否在运行 | `pm2 status` |
-| 实时看游戏日志 | `pm2 logs monopoly` |
-| 看最近 50 条日志 | `pm2 logs monopoly --lines 50 --nostream` |
-| 更新游戏代码 | 见[第二节](#二更新游戏代码最常用) |
-| 重启游戏 | `pm2 restart monopoly` |
-| 停止游戏 | `pm2 stop monopoly` |
-| 查看在线连接数 | `ss -tn state established \| grep :80 \| wc -l` |
-| 查看 80 端口占用 | `ss -tlnp \| grep :80` |
-| 查看服务器资源 | `pm2 monit` |
+服务器默认不把玩家昵称、重连 token 或每一步游戏动作输出为运维日志。局内事件只保存在局面快照的最近 200 条日志中。没有公开的房间管理或玩家历史 API；TCP 连接数不能直接等同在线人数。
 
----
+## 发布与回退
 
-## 二、更新游戏代码（最常用）
-
-当你本地改了代码并 push 到 GitHub 后，在服务器 TAT 终端执行：
+在仓库根目录使用锁文件安装和构建。先检查工作目录并决定如何处理本地更改，勿用覆盖命令丢弃服务器上的修改：
 
 ```bash
 cd /opt/Monopoly
-git pull origin main
-cd server && npm install
-pm2 restart monopoly
+git status --short
+git fetch origin
+git pull --ff-only origin main
+npm ci
+npm test
+npm run build
 ```
 
-> ⚠️ 重启会清空所有正在进行的房间（房间数据在内存中）。如果有人正在玩，建议通知后再重启。
-
-### 如果 git pull 报冲突
+在维护窗口部署。安装依赖会改变正在运行进程使用的代码环境；更稳妥的做法是在独立发布目录完成以上步骤，再切换到新版本并启动一个进程。发布产物必须同时包含 `shared/`、`server/`、`monopoly/dist/` 和匹配的依赖，避免前端与规则版本混用。
 
 ```bash
-cd /opt/Monopoly
-git stash
-git pull origin main
-cd server && npm install
-pm2 restart monopoly
+sudo systemctl restart monopoly
+curl --fail http://127.0.0.1:3000/healthz
 ```
 
-### 验证更新成功
+再按[部署验收](deployment-guide.md#上线验收)检查公网双端游戏。更新环境变量后也需要重启。回退到事先保留的完整版本并重新启动；回退不能恢复已经丢失的房间。Docker 发布同样需要准备与验收新的镜像，且只运行一个副本。
 
-```bash
-pm2 logs monopoly --lines 5 --nostream
-```
-看到服务重启日志即可。浏览器访问 `http://你的服务器IP` 测试。
+## 连接与超时行为
 
----
+- 心跳默认每 30 秒检查连接；失联连接会被关闭。
+- 人类当前回合时限默认 60 秒，`TURN_TIMEOUT_MS` 可设为 `1000`–`600000` 毫秒；掷骰或经营操作不会延长时限。
+- 超时后，共享 AI 完成该席位的当前回合。回合代行开始后，真人下一个回合恢复操作，避免人机同时提交。
+- 断网保留席位和私密重连身份；同席位恢复会关闭旧连接。主动离开使该席位永久转为 AI，并撤销重连身份。
+- 房主离开或断网时迁移房主。大厅中，房主可以移除已断线的真人席位再开局。
+- 无已连接真人的房间约 30 分钟后回收（按 30 秒巡检）；其他房间在 24 小时没有活动后回收。进程最多接受 500 个房间和 500 条连接。这些是保护上限，未经负载测试，不能当作容量承诺。
 
-## 三、查看玩家状态与房间状态
+重连 token 是私密凭据，勿放入截图、URL、日志或工单。服务器重启后旧 token 无法恢复房间，需要重新创建。
 
-### 3.1 查看当前在线设备数
+## 故障定位
 
-```bash
-ss -tn state established | grep :80 | wc -l
-```
-> 这个数字 ≈ 当前连接的设备数（每个打开游戏页面的浏览器算 1 个连接）。
-
-### 3.2 查看当前有多少活跃房间
-
-房间的状态在游戏日志中。查看最近的房间创建/销毁：
-
-```bash
-pm2 logs monopoly --lines 200 --nostream | grep "房间"
-```
-
-会看到类似：
-```
-房间创建: ABCD1234，房主: 张三
-玩家加入: ABCD1234，李四
-游戏开始: ABCD1234
-房间销毁: ABCD1234（无人）
-```
-
-### 3.3 查看特定玩家的操作历史
-
-```bash
-pm2 logs monopoly --lines 500 --nostream | grep "张三"
-```
-
-### 3.4 查看所有游戏事件（掷骰/购买/投资等）
-
-```bash
-pm2 logs monopoly --lines 100 --nostream
-```
-
-日志格式示例：
-```
-房间创建: TEST1234，房主: Alice
-玩家加入: TEST1234，Bob
-游戏开始: TEST1234
-游戏开始！2 位玩家，生态指数初始 50
-Alice 到达 芝罘湾广场
-Alice 购买了 芝罘湾广场，花费 ¥1200
-💼 Alice 投资 海上风电场，花费 ¥3000
-🐚 Bob 在 长岛 建造养殖场至 育苗场，花费 ¥1500
-```
-
----
-
-## 四、实时监听游戏日志
-
-### 4.1 实时监听（会持续滚动，Ctrl+C 退出但不停止游戏）
-
-```bash
-pm2 logs monopoly
-```
-
-### 4.2 只看错误日志
-
-```bash
-pm2 logs monopoly --err
-```
-
-### 4.3 持久化日志文件位置
-
-PM2 日志默认存在 `/root/.pm2/logs/`：
-
-```bash
-ls -la /root/.pm2/logs/
-# monopoly-out.log   → 标准输出（游戏事件）
-# monopoly-error.log → 错误日志
-```
-
-### 4.4 下载日志到本地查看（可选）
-
-在本地终端执行：
-```bash
-scp root@你的服务器IP:/root/.pm2/logs/monopoly-out.log ./game-logs.txt
-```
-
----
-
-## 五、PM2 进程管理
-
-| 命令 | 作用 |
+| 症状 | 检查与处理 |
 |---|---|
-| `pm2 status` | 查看所有进程状态 |
-| `pm2 logs monopoly` | 实时日志 |
-| `pm2 logs monopoly --lines N --nostream` | 最近 N 条日志 |
-| `pm2 restart monopoly` | 重启游戏 |
-| `pm2 stop monopoly` | 停止游戏 |
-| `pm2 delete monopoly` | 删除进程（需重新 start） |
-| `pm2 monit` | 实时监控 CPU/内存面板 |
-| `pm2 flush` | 清空日志文件 |
+| `/healthz` 连接被拒绝 | 检查进程状态、`HOST`、`PORT`、端口占用与启动日志 |
+| 健康检查正常，首页 404 | 在根目录执行 `npm run build`；确认 `monopoly/dist/index.html` 和完整资源目录存在 |
+| 首页正常，`/ws` 不返回 101 | 检查 Upgrade/Connection 头、路径必须恰为 `/ws`、Nginx 上游和来源白名单 |
+| HTTPS 页面联机失败 | 检查浏览器连接是否为同域 WSS、TLS 证书与 Nginx 配置；不能把页面连接改成不安全 WS |
+| 升级连接收到 403 | `ALLOWED_ORIGINS` 使用完整来源且无尾部 `/`；反代保留 `Host`，有端口时保留端口；检查连接数上限 |
+| `STALE_REVISION` | 等待最新快照后重新选择操作；勿跨重连自动重放旧动作 |
+| `TURN_AUTOPLAY` | 当前回合已超时，由 AI 完成；等待下一个本人回合 |
+| `NOT_READY` | 所有真人需在线并准备；移除断线的大厅席位或等待其恢复 |
+| `ROOM_NOT_FOUND` / `INVALID_SESSION` | 房间过期、进程重启、主动离开或 token 不符；检查部署是否错误运行多个副本 |
+| `ENGINE_ERROR` | 查看服务端 `Automatic turn failed` 错误；保留版本及复现步骤，维护后再重启，重启会丢房间 |
+| 经常断线 | 检查代理超时是否长于心跳间隔、网络和负载；检查是否发生进程重启 |
 
-### 用 80 端口启动（生产环境标准）
+普通 `curl /ws` 是 HTTP 请求，不是 WebSocket 握手，返回 404 不能证明联机失败。用浏览器网络面板观察真正的 Upgrade 请求，并核对双方实际行动后的快照。
 
-```bash
-pm2 delete monopoly 2>/dev/null
-PORT=80 pm2 start /opt/Monopoly/server/server.js --name "monopoly" --cwd /opt/Monopoly/server
-pm2 save
-```
+## 备份与监控边界
 
----
+保留完整发布版本、锁文件、反代/进程配置和 TLS 续期配置。当前没有房间持久化、恢复工具或数据库备份；复制进程日志不能恢复对局。监控进程退出、反代错误、健康接口、内存与 CPU，并以实际部署压测决定资源，勿引用旧文档的云厂商优惠和未经测量的并发数字。
 
-## 六、首次部署（从零开始）
-
-> 仅在服务器重装系统后需要执行。正常情况跳过此节。
-
-```bash
-# 1. 安装环境
-apt update -y && apt install -y git curl
-curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-apt install -y nodejs
-npm install -g pm2
-
-# 2. 克隆项目
-cd /opt
-git clone https://github.com/<你的用户名>/Monopoly.git
-cd Monopoly/server
-npm install
-
-# 3. 用 80 端口启动
-PORT=80 pm2 start server.js --name "monopoly"
-pm2 save
-pm2 startup   # 按提示复制粘贴执行的命令
-
-# 4. 开放端口（腾讯云控制台 → 防火墙）
-#    添加规则：TCP 80 允许
-```
-
-访问 `http://你的服务器IP` 验证。
-
----
-
-## 七、故障排查
-
-### 7.1 访问不了游戏
-
-```bash
-# 1. 游戏是否在运行？
-pm2 status
-# 状态应为 online
-
-# 2. 80 端口是否在监听？
-ss -tlnp | grep :80
-# 应显示 0.0.0.0:80 ... LISTEN
-
-# 3. 如果上面都正常但外部访问不了 → 腾讯云防火墙
-# 控制台 → 轻量服务器 → 防火墙 → 确认 TCP 80 允许
-```
-
-### 7.2 联机连接不上（一直"连接中"或"服务器没连上"）
-
-**第一步：确认游戏在运行**
-
-```bash
-pm2 status
-# 状态必须为 online，如果不是：
-pm2 restart monopoly
-```
-
-**第二步：确认 80 端口在监听**
-
-```bash
-ss -tlnp | grep :80
-# 必须显示 0.0.0.0:80 ... LISTEN
-# 如果没有任何输出，说明游戏没启动成功：
-PORT=80 pm2 start /opt/Monopoly/server/server.js --name "monopoly" --cwd /opt/Monopoly/server
-pm2 save
-```
-
-**第三步：确认服务端代码是最新版**
-
-```bash
-cd /opt/Monopoly
-git log --oneline -3
-# 应该看到最近几次提交（b263f30 或更新）
-# 如果不是最新的：
-git pull origin main
-cd server && npm install
-pm2 restart monopoly
-```
-
-**第四步：测试 WebSocket 连通性**
-
-```bash
-# 服务器内部测试
-wscat -c ws://localhost:80/ws
-# 应显示 connected
-
-# 外部测试（公网 IP）
-wscat -c ws://你的服务器IP:80/ws
-# 应显示 connected
-```
-
-**第五步：检查腾讯云防火墙**
-
-- 腾讯云控制台 → 轻量服务器 → 防火墙
-- 确认有规则：**TCP 80 允许**
-- 如果没有，添加规则
-
-**第六步：检查浏览器地址栏**
-
-- 访问地址必须是 `http://你的服务器IP`（**http**，不是 https）
-- 如果浏览器自动跳转 https，会显示"连接被拒绝"
-- 用无痕窗口或手动输入 `http://` 开头
-
-**第七步：查看服务端报错**
-
-```bash
-pm2 logs monopoly --err --lines 30
-# 如果有红色错误，通常是代码问题，需要更新代码
-```
-
-### 7.3 服务崩溃后自动恢复
-
-PM2 会自动重启崩溃的进程。查看重启次数：
-```bash
-pm2 status
-# 看 ↺ 列（重启次数）
-```
-
-### 7.4 端口被占用
-
-```bash
-ss -tlnp | grep :80
-# 如果是 nginx 占了：
-systemctl stop nginx
-pm2 restart monopoly
-```
-
-### 7.5 内存不足
-
-```bash
-free -h
-# 如果可用内存 < 200MB，添加交换空间：
-fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
-echo '/swapfile none swap sw 0 0' >> /etc/fstab
-```
-
----
-
-## 八、保证游戏 7×24 运行
-
-### 8.1 已自动保证的事项
-
-| 场景 | 游戏是否继续 |
-|---|---|
-| 关闭 TAT 浏览器窗口 | ✅ 继续 |
-| 你电脑关机 | ✅ 继续 |
-| 服务器重启 | ✅ 自动恢复（pm2 startup） |
-| 游戏进程崩溃 | ✅ PM2 自动重启 |
-
-### 8.2 确认开机自启
-
-```bash
-pm2 save
-pm2 startup
-# 如果提示已配置，会显示 "Systemd startup script already exists"
-```
-
-### 8.3 定期检查（建议每周一次）
-
-```bash
-pm2 status                          # 确认 online
-pm2 logs monopoly --err --lines 10  # 确认无错误
-df -h                               # 确认磁盘未满
-```
-
----
-
-## 附录：架构速览
-
-```
-用户浏览器
-    │ http://你的服务器IP
-    ▼
-┌─────────────────────┐
-│  Node.js (PM2 守护)  │  80 端口
-│  server/server.js    │  ├─ HTTP 静态服务（public/index.html）
-│  server/engine.js    │  └─ WebSocket（/ws 路径，联机房间）
-│  server/data.js      │
-└─────────────────────┘
-    │ git pull origin main
-    ▼
-GitHub: <你的用户名>/Monopoly
-```
-
-> **文档结束** | 有问题先查第七节故障排查，仍无法解决提 GitHub Issue。
+本次验证范围为本机规则测试、模拟、构建和本地联机流程。云主机、跨公网设备、TLS、Nginx 和容器是否通过验收，应以对应环境的实际执行记录为准。

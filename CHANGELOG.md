@@ -1,3 +1,18 @@
+# V4.0.0 — 2026-10-30
+
+- Rebuilt local and online play around one dependency-free shared engine; removed divergent engines and stale embedded frontend.
+- Rewrote authoritative rooms, secure seat recovery, host migration, revision checks, request deduplication, timeout AI and deployment configuration.
+- Rebalanced mandatory rent, liquidation, upgrades, investments, ecology and full-round net-worth victory. Replaced unseeded, rule-breaking AI with legal deterministic strategies.
+- Rebuilt the responsive interface, local saves, hotseat handoff, Chinese/English text, rules and deployment documentation.
+- Added meaningful engine/client/server regressions, real browser workflows, reproducible seat-rotated simulations, lockfile and CI.
+- Breaking: v3 clients/saves are incompatible. Removed free-choice teleport, player trades, auctions, reroll tickets, hotels and instant wealth victory.
+
+中文：统一单机/联机规则与AI，重做联机生命周期、双语界面和文档；以强制清算和轮次净资产结算替代旧的逃租与提前资产胜利。完整验证边界见 `docs/validation.md`。
+
+---
+
+The entries below describe historical v3 behavior and are not the current specification.
+
 # 更新日志
 
 ## v3.8.1 - 深度 Bug 修复 + 目录重构（2026-07-14）
